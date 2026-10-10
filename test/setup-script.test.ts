@@ -59,8 +59,8 @@ describe("scripts/setup.sh", () => {
     const res = spawnSync(resolve(__dirname, "../node_modules/.bin/shellcheck"), [SCRIPT], {
       encoding: "utf8",
     });
-    expect(res.stdout + res.stderr).toBe("");
-    expect(res.status).toBe(0);
+    // Assert the exit code only: on first run the npm wrapper prints a download notice to stdout.
+    expect(res.status, res.stdout + res.stderr).toBe(0);
   });
 
   it("fails clearly and does nothing when required env vars are missing", () => {
@@ -80,7 +80,7 @@ describe("scripts/setup.sh", () => {
   });
 
   it("new worker: deploys, sets every secret through stdin, calls /setup, prints the token once", () => {
-    const r = run({ ...SECRETS, ALLOWED_USER_IDS: "646517040" });
+    const r = run({ ...SECRETS, ALLOWED_USER_IDS: "123456789" });
     expect(r.code).toBe(0);
 
     expect(r.calls).toContain("DEPLOY deploy --name grokbot-telegram");
@@ -95,7 +95,7 @@ describe("scripts/setup.sh", () => {
       expect(r.calls).toMatch(new RegExp(`PUT ${name} --name grokbot-telegram value=\\S+`));
     }
     expect(r.calls).toContain(`PUT BOT_TOKEN --name grokbot-telegram value=${SECRETS.BOT_TOKEN}`);
-    expect(r.calls).toContain("PUT ALLOWED_USER_IDS --name grokbot-telegram value=646517040");
+    expect(r.calls).toContain("PUT ALLOWED_USER_IDS --name grokbot-telegram value=123456789");
 
     const token = r.calls.match(/PUT MCP_BEARER_TOKEN --name \S+ value=([0-9a-f]{64})/)![1];
     expect(r.calls).toContain(`-X POST --config - https://grokbot-telegram.fake.workers.dev/setup`);
