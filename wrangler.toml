@@ -1,0 +1,10 @@
+name = "grokbot-telegram"
+main = "src/index.ts"
+compatibility_date = "2025-09-01"
+
+[observability]
+enabled = true
+
+# Secrets (set with `wrangler secret put`, see INSTRUCTIONS.md):
+# BOT_TOKEN, TG_WEBHOOK_SECRET, MCP_BEARER_TOKEN, ALLOWED_USER_IDS,
+# GROKBOT_WEBHOOK_URL, GROKBOT_WEBHOOK_AUTH, GROKBOT_WEBHOOK_AUTH_HEADER (optional)
