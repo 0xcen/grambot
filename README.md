@@ -1,7 +1,6 @@
 # Grambot
 
-<img width="1918" height="820" alt="Your grok bot now on telegram" src="https://github.com/user-attachments/assets/e782ed03-cb4c-4464-9f4f-f63ac15d842a" />
-
+<p align="center"><img src="assets/hero.png" width="1918" alt="Grambot: your Grok Bot, now on Telegram"></p>
 
 Chat with your Grok Bot from Telegram.
 
