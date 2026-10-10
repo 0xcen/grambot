@@ -132,6 +132,49 @@ describe("POST /telegram", () => {
     });
   });
 
+  it("adds the Bearer scheme when GROKBOT_WEBHOOK_AUTH is a bare key", async () => {
+    await call(webhookRequest(telegramUpdate(111)), { GROKBOT_WEBHOOK_AUTH: "bare-routine-key" });
+    const [, init] = fetchMock.mock.calls[0];
+    expect(init.headers.Authorization).toBe("Bearer bare-routine-key");
+  });
+
+  it.each(["Authorization: Bearer pasted-key", "authorization:Bearer pasted-key", "Authorization: pasted-key"])(
+    "strips a pasted header name from %j",
+    async (value) => {
+      await call(webhookRequest(telegramUpdate(111)), { GROKBOT_WEBHOOK_AUTH: value });
+      const [, init] = fetchMock.mock.calls[0];
+      expect(init.headers.Authorization).toBe("Bearer pasted-key");
+    },
+  );
+
+  it.each([
+    ["bare key", "k3y-123", { hadBearer: false, hadHeaderName: false, hadQuotes: false }],
+    ["Bearer key", "Bearer k3y-123", { hadBearer: true }],
+    ["lowercase bearer, extra spaces", "bearer    k3y-123", { hadBearer: true }],
+    ["trailing newline", "Bearer k3y-123\n", { hadEdgeWhitespace: true }],
+    ["CRLF and spaces", "  k3y-123\r\n", { hadEdgeWhitespace: true }],
+    ["double quoted", '"Bearer k3y-123"', { hadQuotes: true, hadBearer: true }],
+    ["single quoted bare key", "'k3y-123'", { hadQuotes: true }],
+    ["full header line", "Authorization: Bearer k3y-123", { hadHeaderName: true, hadBearer: true }],
+    ["header line, no space", "authorization:Bearer k3y-123", { hadHeaderName: true }],
+    ["header line with bare key", "Authorization: k3y-123", { hadHeaderName: true, hadBearer: false }],
+    ["quoted header line + newline", '"Authorization: Bearer k3y-123"\n', { hadQuotes: true, hadHeaderName: true }],
+    ["header line with quoted value", 'Authorization: "Bearer k3y-123"', { hadQuotes: true, hadHeaderName: true }],
+    ["quoted key after Bearer", 'Bearer "k3y-123"', { hadQuotes: true, hadBearer: true }],
+    ["zero-width and BOM", "\uFEFFBearer k3y-123\u200B", { hadInvisibleChars: true }],
+  ])("normalizes %s to exactly 'Bearer <key>' and logs only the shape", async (_, value, shape) => {
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    await call(webhookRequest(telegramUpdate(111)), { GROKBOT_WEBHOOK_AUTH: value });
+    const [, init] = fetchMock.mock.calls[0];
+    expect(init.headers.Authorization).toBe("Bearer k3y-123");
+
+    const shapeLine = logSpy.mock.calls.flat().find((l) => String(l).startsWith("forward auth shape:"));
+    expect(shapeLine).toBeDefined();
+    expect(shapeLine).not.toContain("k3y-123");
+    const logged = JSON.parse(String(shapeLine).match(/(\{.*\})/)![1]);
+    expect(logged).toMatchObject({ length: value.length, ...shape });
+  });
+
   it("uses GROKBOT_WEBHOOK_AUTH_HEADER as the header name when set", async () => {
     await call(webhookRequest(telegramUpdate(111)), {
       GROKBOT_WEBHOOK_AUTH_HEADER: "X-Routine-Key",

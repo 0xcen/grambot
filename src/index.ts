@@ -1,3 +1,4 @@
+import { handleDebug } from "./debug";
 import { handleMcp } from "./mcp";
 import { handleSetup } from "./setup";
 import { handleTelegramWebhook } from "./telegram-webhook";
@@ -25,6 +26,10 @@ export default {
 
     if (pathname === "/mcp") {
       return handleMcp(request, env);
+    }
+
+    if (pathname === "/debug") {
+      return handleDebug(request, env);
     }
 
     if (pathname === "/setup") {
