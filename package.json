@@ -1,5 +1,5 @@
 {
-  "name": "grokbot-telegram",
+  "name": "grambot",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -7,11 +7,11 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/0xcen/grokbot-telegram.git"
+    "url": "git+https://github.com/0xcen/grambot.git"
   },
-  "homepage": "https://github.com/0xcen/grokbot-telegram#readme",
+  "homepage": "https://github.com/0xcen/grambot#readme",
   "bugs": {
-    "url": "https://github.com/0xcen/grokbot-telegram/issues"
+    "url": "https://github.com/0xcen/grambot/issues"
   },
   "keywords": [
     "telegram",

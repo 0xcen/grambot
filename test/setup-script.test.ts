@@ -10,7 +10,7 @@ const FAKE_NPX = `#!/usr/bin/env bash
 [ "$1" = "--yes" ] && shift
 [ "$1" = "wrangler" ] && shift
 case "$1" in
-  deploy) echo "DEPLOY $*" >> "$FAKE_LOG"; echo "  https://grokbot-telegram.fake.workers.dev" ;;
+  deploy) echo "DEPLOY $*" >> "$FAKE_LOG"; echo "  https://grambot.fake.workers.dev" ;;
   secret) echo "PUT $3 $4 $5 value=$(cat)" >> "$FAKE_LOG"; echo "Success! Uploaded secret $3" ;;
   *) echo "UNEXPECTED $*" >> "$FAKE_LOG"; exit 1 ;;
 esac
@@ -83,7 +83,7 @@ describe("scripts/setup.sh", () => {
     const r = run({ ...SECRETS, ALLOWED_USER_IDS: "123456789" });
     expect(r.code).toBe(0);
 
-    expect(r.calls).toContain("DEPLOY deploy --name grokbot-telegram");
+    expect(r.calls).toContain("DEPLOY deploy --name grambot");
     for (const name of [
       "ALLOWED_USER_IDS",
       "TG_WEBHOOK_SECRET",
@@ -92,24 +92,24 @@ describe("scripts/setup.sh", () => {
       "GROKBOT_WEBHOOK_URL",
       "GROKBOT_WEBHOOK_AUTH",
     ]) {
-      expect(r.calls).toMatch(new RegExp(`PUT ${name} --name grokbot-telegram value=\\S+`));
+      expect(r.calls).toMatch(new RegExp(`PUT ${name} --name grambot value=\\S+`));
     }
-    expect(r.calls).toContain(`PUT BOT_TOKEN --name grokbot-telegram value=${SECRETS.BOT_TOKEN}`);
-    expect(r.calls).toContain("PUT ALLOWED_USER_IDS --name grokbot-telegram value=123456789");
+    expect(r.calls).toContain(`PUT BOT_TOKEN --name grambot value=${SECRETS.BOT_TOKEN}`);
+    expect(r.calls).toContain("PUT ALLOWED_USER_IDS --name grambot value=123456789");
 
     const token = r.calls.match(/PUT MCP_BEARER_TOKEN --name \S+ value=([0-9a-f]{64})/)![1];
-    expect(r.calls).toContain(`-X POST --config - https://grokbot-telegram.fake.workers.dev/setup`);
+    expect(r.calls).toContain(`-X POST --config - https://grambot.fake.workers.dev/setup`);
     expect(r.calls).toContain(`header = "Authorization: Bearer ${token}"`);
 
-    expect(r.out).toContain("MCP URL: https://grokbot-telegram.fake.workers.dev/mcp");
+    expect(r.out).toContain("MCP URL: https://grambot.fake.workers.dev/mcp");
     expect(r.out).not.toContain(token);
     for (const value of Object.values(SECRETS)) expect(r.out).not.toContain(value);
     const tgSecret = r.calls.match(/PUT TG_WEBHOOK_SECRET --name \S+ value=(\S+)/)![1];
     expect(r.out).not.toContain(tgSecret);
 
-    const defaultFile = join(dir, ".grokbot-telegram-mcp");
+    const defaultFile = join(dir, ".grambot-mcp");
     expect(readFileSync(defaultFile, "utf8")).toBe(
-      `MCP_URL=https://grokbot-telegram.fake.workers.dev/mcp\nMCP_BEARER_TOKEN=${token}\n`,
+      `MCP_URL=https://grambot.fake.workers.dev/mcp\nMCP_BEARER_TOKEN=${token}\n`,
     );
     expect(statSync(defaultFile).mode & 0o777).toBe(0o600);
   });
@@ -142,7 +142,7 @@ describe("scripts/setup.sh", () => {
     expect(r.code).toBe(0);
     const token = r.calls.match(/PUT MCP_BEARER_TOKEN --name \S+ value=(\S+)/)![1];
     expect(readFileSync(file, "utf8")).toBe(
-      `MCP_URL=https://grokbot-telegram.fake.workers.dev/mcp\nMCP_BEARER_TOKEN=${token}\n`,
+      `MCP_URL=https://grambot.fake.workers.dev/mcp\nMCP_BEARER_TOKEN=${token}\n`,
     );
     expect(statSync(file).mode & 0o777).toBe(0o600);
     expect(r.out).not.toContain(token);
@@ -218,7 +218,26 @@ describe("scripts/setup.sh", () => {
     expect(r.out).toContain("MCP URL: https://my-bridge.example.workers.dev/mcp");
     expect(r.out).not.toContain("existing-bearer-token");
     expect(existsSync(join(dir, "secrets.env"))).toBe(false);
-    expect(existsSync(join(dir, ".grokbot-telegram-mcp"))).toBe(false);
+    expect(existsSync(join(dir, ".grambot-mcp"))).toBe(false);
+  });
+
+  it.each([
+    ["takes the name from a workers.dev WORKER_URL", {}, "grokbot-telegram"],
+    ["lets WORKER_NAME override the URL", { WORKER_NAME: "custom-name" }, "custom-name"],
+  ])("existing worker: %s", (_, extra, expected) => {
+    const r = run({
+      ...SECRETS,
+      MCP_BEARER_TOKEN: "existing-bearer-token",
+      WORKER_URL: "https://grokbot-telegram.someone.workers.dev",
+      ...extra,
+    });
+    expect(r.code).toBe(0);
+    expect(r.calls).not.toContain("DEPLOY");
+    for (const name of ["BOT_TOKEN", "GROKBOT_WEBHOOK_URL", "GROKBOT_WEBHOOK_AUTH"]) {
+      expect(r.calls).toContain(`PUT ${name} --name ${expected} value=`);
+    }
+    expect(r.calls).not.toContain("--name grambot");
+    expect(r.calls).toContain("--config - https://grokbot-telegram.someone.workers.dev/setup");
   });
 
   it("existing worker mode requires WORKER_URL", () => {
@@ -235,7 +254,7 @@ describe("scripts/setup.sh", () => {
       WORKER_URL: "https://w.example",
       GROKBOT_WEBHOOK_AUTH_HEADER: "X-Routine-Key",
     });
-    expect(r.calls).toContain("PUT GROKBOT_WEBHOOK_AUTH_HEADER --name grokbot-telegram value=X-Routine-Key");
+    expect(r.calls).toContain("PUT GROKBOT_WEBHOOK_AUTH_HEADER --name grambot value=X-Routine-Key");
   });
 
   it("fails when /setup keeps failing, after retrying", () => {

@@ -4,7 +4,7 @@ dist/
 coverage/
 .dev.vars*
 .env*
-.grokbot-telegram-mcp
+.grambot-mcp
 secrets.env
 *.secrets
 *.pem

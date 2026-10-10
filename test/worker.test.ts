@@ -241,7 +241,7 @@ describe("/mcp", () => {
     expect(body.id).toBe(1);
     expect(body.result.protocolVersion).toBe("2025-03-26");
     expect(body.result.capabilities.tools).toBeDefined();
-    expect(body.result.serverInfo.name).toBe("grokbot-telegram");
+    expect(body.result.serverInfo.name).toBe("grambot");
   });
 
   it("falls back to the latest protocol version for unknown versions", async () => {
@@ -434,7 +434,7 @@ describe("POST /setup", () => {
   function setupRequest(token: string | null = env.MCP_BEARER_TOKEN, method = "POST") {
     const headers: Record<string, string> = {};
     if (token !== null) headers.Authorization = `Bearer ${token}`;
-    return new Request(`https://grokbot-telegram.someone.workers.dev/setup`, { method, headers });
+    return new Request(`https://grambot.someone.workers.dev/setup`, { method, headers });
   }
 
   it("returns 401 without the bearer token", async () => {
@@ -467,7 +467,7 @@ describe("POST /setup", () => {
     const [url, init] = fetchMock.mock.calls[0];
     expect(url).toBe("https://api.telegram.org/bot123:test-bot-token/setWebhook");
     expect(JSON.parse(init.body)).toEqual({
-      url: "https://grokbot-telegram.someone.workers.dev/telegram",
+      url: "https://grambot.someone.workers.dev/telegram",
       secret_token: "tg-secret",
       allowed_updates: ["message"],
     });

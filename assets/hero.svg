@@ -1,5 +1,5 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1280" height="640" viewBox="0 0 1280 640" role="img" aria-labelledby="title desc">
-  <title id="title">grokbot-telegram</title>
+  <title id="title">Grambot</title>
   <desc id="desc">Your own Telegram client for your Grok Bot. A Telegram message passes through a tiny Cloudflare Worker to a Grok Bot routine, which replies in the same chat.</desc>
   <defs>
     <symbol id="plane" viewBox="0 0 24 24">
@@ -31,7 +31,7 @@
   <g transform="translate(68 58)">
     <rect width="40" height="40" rx="9" fill="#262825"/>
     <use href="#plane" x="9" y="9" width="22" height="22" color="#F4F3EC"/>
-    <text x="54" y="29" font-size="30" font-weight="500" letter-spacing="-0.9" fill="#F4F3EC">grokbot-telegram</text>
+    <text x="54" y="29" font-size="30" font-weight="500" letter-spacing="-0.9" fill="#F4F3EC">Grambot</text>
   </g>
 
   <g font-size="70" font-weight="500" letter-spacing="-2.8" fill="#F4F3EC">
