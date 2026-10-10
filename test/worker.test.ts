@@ -336,6 +336,51 @@ describe("/mcp", () => {
   });
 });
 
+describe("ALLOWED_USER_IDS is required", () => {
+  const badValues: [string, string | undefined][] = [
+    ["unset", undefined],
+    ["empty", ""],
+    ["whitespace", "  "],
+    ["non-numeric", "abc"],
+    ["trailing comma", "111,"],
+    ["one bad entry", "111,@ada"],
+  ];
+
+  it.each(badValues)("/telegram never forwards when the allowlist is %s", async (_, value) => {
+    const res = await call(webhookRequest(telegramUpdate(111)), {
+      ALLOWED_USER_IDS: value as string,
+    });
+    expect(res.status).toBe(200);
+    expect(fetchMock).not.toHaveBeenCalled();
+    const logged = (console.error as ReturnType<typeof vi.fn>).mock.calls.flat().join(" ");
+    expect(logged).toContain("ALLOWED_USER_IDS");
+  });
+
+  it.each(badValues)("MCP tools refuse with a config error when the allowlist is %s", async (_, value) => {
+    for (const [name, args] of [
+      ["send_telegram_message", { chat_id: 111, text: "hi" }],
+      ["send_typing", { chat_id: 111 }],
+    ] as const) {
+      const res = await call(mcpRequest(rpc("tools/call", { name, arguments: args })), {
+        ALLOWED_USER_IDS: value as string,
+      });
+      const body = await res.json<any>();
+      expect(body.result.isError).toBe(true);
+      expect(body.result.content[0].text).toContain("Server misconfigured: ALLOWED_USER_IDS");
+    }
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("accepts the lowercase bearer scheme", async () => {
+    const req = new Request(`${BASE}/mcp`, {
+      method: "POST",
+      headers: { Authorization: `bearer ${env.MCP_BEARER_TOKEN}` },
+      body: JSON.stringify(rpc("tools/list")),
+    });
+    expect((await call(req)).status).toBe(200);
+  });
+});
+
 describe("routing", () => {
   it.each(["/", "/telegram/extra", "/mcp/", "/admin"])("returns 404 for %s", async (path) => {
     const res = await call(new Request(`${BASE}${path}`, { method: "POST" }));

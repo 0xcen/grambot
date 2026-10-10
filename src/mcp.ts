@@ -1,5 +1,5 @@
 import type { Env } from "./index";
-import { constantTimeEqual, isAllowed, parseAllowlist } from "./util";
+import { ALLOWLIST_CONFIG_ERROR, constantTimeEqual, isAllowed, parseAllowlist } from "./util";
 
 const SUPPORTED_PROTOCOL_VERSIONS = ["2025-06-18", "2025-03-26", "2024-11-05"];
 const LATEST_PROTOCOL_VERSION = SUPPORTED_PROTOCOL_VERSIONS[0];
@@ -85,7 +85,7 @@ export async function handleMcp(request: Request, env: Env): Promise<Response> {
   }
 
   const auth = request.headers.get("Authorization") ?? "";
-  const token = auth.startsWith("Bearer ") ? auth.slice(7) : "";
+  const token = /^Bearer\s+/i.test(auth) ? auth.replace(/^Bearer\s+/i, "") : "";
   if (!env.MCP_BEARER_TOKEN || !(await constantTimeEqual(token, env.MCP_BEARER_TOKEN))) {
     return new Response("Unauthorized", {
       status: 401,
@@ -157,8 +157,10 @@ const toolOk = (text: string): ToolResult => ({ content: [{ type: "text", text }
 
 function checkChat(args: Record<string, unknown>, env: Env): string | null {
   const chatId = args.chat_id;
+  const allowlist = parseAllowlist(env.ALLOWED_USER_IDS);
+  if (!allowlist) return ALLOWLIST_CONFIG_ERROR;
   if (typeof chatId !== "number" && typeof chatId !== "string") return "chat_id is required";
-  if (!isAllowed(parseAllowlist(env.ALLOWED_USER_IDS), chatId)) {
+  if (!isAllowed(allowlist, chatId)) {
     return "chat_id is not in the allowlist";
   }
   return null;

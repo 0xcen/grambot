@@ -50,9 +50,15 @@ export async function handleTelegramWebhook(
     return ok();
   }
 
+  const allowlist = parseAllowlist(env.ALLOWED_USER_IDS);
+  if (!allowlist) {
+    console.error("config error: ALLOWED_USER_IDS is empty or invalid, dropping update");
+    return ok();
+  }
+
   const message = update.message;
   if (!message?.from || typeof message.text !== "string") return ok();
-  if (!isAllowed(parseAllowlist(env.ALLOWED_USER_IDS), message.from.id)) return ok();
+  if (!isAllowed(allowlist, message.from.id)) return ok();
 
   const payload: ForwardPayload = {
     chat_id: message.chat.id,
