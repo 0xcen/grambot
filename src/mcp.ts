@@ -4,7 +4,7 @@ import { ALLOWLIST_CONFIG_ERROR, isAllowed, parseAllowlist } from "./util";
 
 const SUPPORTED_PROTOCOL_VERSIONS = ["2025-06-18", "2025-03-26", "2024-11-05"];
 const LATEST_PROTOCOL_VERSION = SUPPORTED_PROTOCOL_VERSIONS[0];
-const SERVER_INFO = { name: "grokbot-telegram", version: "0.1.0" };
+const SERVER_INFO = { name: "grambot", version: "0.1.0" };
 const TELEGRAM_MAX_TEXT = 4096;
 const PARSE_MODES = ["MarkdownV2", "HTML", "Markdown"] as const;
 

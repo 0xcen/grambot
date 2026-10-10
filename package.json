@@ -1,10 +1,27 @@
 {
-  "name": "grokbot-telegram",
+  "name": "grambot",
   "version": "0.1.0",
   "private": true,
   "type": "module",
   "description": "Cloudflare Worker that bridges a Telegram bot to Grok Bot routines and exposes a send-only MCP server",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/0xcen/grambot.git"
+  },
+  "homepage": "https://github.com/0xcen/grambot#readme",
+  "bugs": {
+    "url": "https://github.com/0xcen/grambot/issues"
+  },
+  "keywords": [
+    "telegram",
+    "telegram-bot",
+    "grok-bot",
+    "cloudflare-workers",
+    "mcp",
+    "model-context-protocol",
+    "webhook"
+  ],
   "engines": {
     "node": ">=22"
   },

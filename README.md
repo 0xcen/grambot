@@ -1,8 +1,13 @@
-# grokbot-telegram
+# Grambot
 
-<p align="center"><img src="assets/hero.svg" width="1280" alt="grokbot-telegram: your own Telegram client for your Grok Bot. A Telegram message goes through a tiny Cloudflare Worker to a Grok Bot routine, which replies in the same chat."></p>
+<p align="center"><img src="assets/hero.svg" width="1280" alt="Grambot: your own Telegram client for your Grok Bot. A Telegram message goes through a tiny Cloudflare Worker to a Grok Bot routine, which replies in the same chat."></p>
 
-Text your Grok Bot from Telegram. A tiny Cloudflare Worker forwards your messages to a Grok Bot routine, and the bot replies in the same chat through a send-only MCP connector.
+Chat with your Grok Bot from Telegram.
+
+- **Simple to self-host.** One tiny Cloudflare Worker, set up by your own Grok Bot.
+- **Secure by default.** Only allowlisted Telegram accounts get through, and secrets never go through Telegram.
+
+Your messages go to a Grok Bot routine, and the bot replies in the same chat through a send-only MCP connector.
 
 To install, give this README to your Grok Bot and say "set this up for me". The bot does the work and asks you for a few values. One step needs the Grok Bot desktop app.
 
@@ -14,6 +19,12 @@ To install, give this README to your Grok Bot and say "set this up for me". The 
 On cell data or messaging-only flight wifi you often can't use the Grok Bot app. This is a dead-simple way to talk to your main bot from Telegram instead.
 
 From Telegram, tools your bot already has connected keep working. New connections, masked secret entry and Auto-review approval cards still need the Grok Bot app.
+
+Before a flight, or any stretch where you will not open the Grok Bot app, give your bot timed Auto-review Allow permissions for the known-safe actions it will need. For example: Shell, MCP writes, cloud agent launches and routine writes. Auto-review work can only proceed this way while you cannot tap an in-app card.
+
+Ordinary asks, draft sends ("send that") and standing send permissions can still be cleared by texting the bot.
+
+FYI: this Worker does not add Approve or Deny buttons, or deep links into Auto-review cards, to Telegram. Those cards live in the Grok Bot app.
 
 ## Prerequisites and connectors
 
@@ -91,12 +102,12 @@ You cannot read the Webhook URL or Authorization header yourself. Once the routi
 
 ### 3. Run setup
 
-    git clone https://github.com/0xcen/grokbot-telegram.git
-    cd grokbot-telegram
+    git clone https://github.com/0xcen/grambot.git
+    cd grambot
     npm install
-    SECRETS_FILE="$HOME/.grokbot-telegram-mcp" bash scripts/setup.sh
+    SECRETS_FILE="$HOME/.grambot-mcp" bash scripts/setup.sh
 
-The script checks every value, deploys the Worker, generates the webhook secret and MCP bearer token, sets every Worker secret itself through the Cloudflare API, and registers the Telegram webhook through `POST /setup`. It writes `MCP_URL` and `MCP_BEARER_TOKEN` to `SECRETS_FILE` (mode 600) instead of printing them. If the clone fails, tell your human the repo must be public or shared with you.
+The script checks every value, deploys the Worker, generates the webhook secret and MCP bearer token, sets every Worker secret itself through the Cloudflare API, and registers the Telegram webhook through `POST /setup`. It writes `MCP_URL` and `MCP_BEARER_TOKEN` to `SECRETS_FILE` (mode 600) instead of printing them.
 
 ### 4. Add the MCP connector
 
@@ -104,17 +115,17 @@ Add an MCP connector with URL `MCP_URL` and bearer token `MCP_BEARER_TOKEN` from
 
 ### 5. Test
 
-Ask your human to text the bot "what time is it?". The routine should run once and they should get one reply. If nothing happens, run `npx wrangler tail grokbot-telegram` while they send another message. When it works, tell them it is live.
+Ask your human to text the bot "what time is it?". The routine should run once and they should get one reply. If nothing happens, run `npx wrangler tail grambot` (or your `WORKER_NAME`) while they send another message. When it works, tell them it is live.
 
 ### Updating an existing Worker
 
 To change the bot token or routine values, no clone or redeploy is needed. Collect the new `BOT_TOKEN`, `GROKBOT_WEBHOOK_URL` and `GROKBOT_WEBHOOK_AUTH`, plus the existing `MCP_BEARER_TOKEN` and `WORKER_URL`, then run:
 
-    curl -fsSL https://raw.githubusercontent.com/0xcen/grokbot-telegram/main/scripts/setup.sh -o setup.sh
+    curl -fsSL https://raw.githubusercontent.com/0xcen/grambot/main/scripts/setup.sh -o setup.sh
     bash setup.sh
 
-With `MCP_BEARER_TOKEN` set, the script skips the deploy, keeps the webhook secret and bearer token, updates the three values and calls `POST /setup` again. Set `WORKER_NAME` if the Worker is not called `grokbot-telegram`.
+With `MCP_BEARER_TOKEN` set, the script skips the deploy, keeps the webhook secret and bearer token, updates the three values and calls `POST /setup` again. The script takes the Worker name from a `workers.dev` `WORKER_URL`. With a custom domain, set `WORKER_NAME` if the Worker is not called `grambot`. Workers installed before the rename are called `grokbot-telegram`.
 
 ## Development
 
-`npm install`, `npm test`, `npm run typecheck`. MIT licensed.
+`npm install`, `npm test`, `npm run typecheck`, `npm run lint:sh`. MIT licensed.
