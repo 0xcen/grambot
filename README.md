@@ -4,7 +4,7 @@
 
 Text your Grok Bot from Telegram. A tiny Cloudflare Worker forwards your messages to a Grok Bot routine, and the bot replies in the same chat through a send-only MCP connector.
 
-To install, give this README to your Grok Bot and say "set this up for me". The bot does the work and asks you for a few values.
+To install, give this README to your Grok Bot and say "set this up for me". The bot does the work and asks you for a few values. One step needs the Grok Bot desktop app.
 
 > [!WARNING]
 > Telegram bot chats are not end-to-end encrypted. Never send passwords, codes, keys or other sensitive data to the bot.
@@ -13,10 +13,10 @@ To install, give this README to your Grok Bot and say "set this up for me". The 
 
 You need:
 
-- A Telegram bot from [@BotFather](https://t.me/BotFather): send `/newbot`, pick a name and username, keep the token.
+- A Telegram bot from [@BotFather](https://t.me/BotFather): send `/newbot`, pick a name and username, keep the token. Fine to do on your phone.
 - A Cloudflare account. Either let the bot run `npx wrangler login`, or create an API token with the "Edit Cloudflare Workers" template and note your account id.
 - Your numeric Telegram user id. Message [@userinfobot](https://t.me/userinfobot) to get it.
-- A Grok Bot, and the Grok Bot desktop app for setup. The routine panel's Webhook URL and Authorization header are only visible in the desktop app; mobile cannot show them.
+- A Grok Bot, plus the Grok Bot desktop app for one setup step. The routine's Webhook URL and Authorization header are only shown in the desktop routine panel, and the bot cannot read them itself. Mobile alone is not enough.
 
 The installing bot creates:
 
@@ -40,7 +40,7 @@ The installing bot creates:
 - **Mandatory allowlist.** The Worker refuses to forward or send anything until `ALLOWED_USER_IDS` holds at least one numeric Telegram user id.
 - **Webhook secret.** Requests to `/telegram` without Telegram's secret header are rejected.
 - **Send-only MCP.** The connector can send a message or a typing indicator, only to allowlisted chats, and nothing else. It needs a bearer token.
-- **Masked secrets.** You type every secret into the bot's masked input. The setup script pipes them straight into Cloudflare and never prints them.
+- **Masked secrets.** You type every secret into masked fields in Grok Bot chat, never into Telegram. The setup script pipes them straight into Cloudflare and never prints them.
 - **Bot token stays in Cloudflare.** It is stored only as a Worker secret. The Worker registers its own Telegram webhook through a bearer-protected `POST /setup`, so the token is never used outside Cloudflare.
 - **Not end-to-end encrypted.** Telegram bot chats can be read by Telegram. Keep sensitive data out of them.
 
@@ -50,7 +50,7 @@ These steps are for you, the Grok Bot. Follow them in order. You need Node 22 or
 
 Rules:
 
-- Your human enters every secret in your masked secret input, never in chat. Put each value straight into an environment variable. Never read, print, repeat or save it.
+- Collect every secret through a masked field in this Grok Bot chat. Never ask for a token or secret over Telegram or in plain chat. Put each value straight into an environment variable. Never read, print, repeat or save it.
 - The allowlist is mandatory. If your human cannot give you their Telegram user id, stop.
 - Remind your human that Telegram bot chats are not end-to-end encrypted.
 
@@ -71,15 +71,17 @@ Create a routine with a webhook trigger. Use this prompt verbatim:
 
 ### 2. Collect the values
 
-Ask your human to enter these in your masked input. The routine panel's Webhook URL and Authorization header are only visible in the Grok Bot desktop app, so they must do this step on desktop; mobile cannot show those values.
+Ask your human for each value in a masked field in this Grok Bot chat. Never over Telegram.
 
-| Variable | Where it comes from |
-| --- | --- |
-| `BOT_TOKEN` | @BotFather, `/newbot` |
-| `ALLOWED_USER_IDS` | Their numeric id from @userinfobot. Separate several ids with commas. |
-| `GROKBOT_WEBHOOK_URL` | The routine panel's Webhook URL |
-| `GROKBOT_WEBHOOK_AUTH` | The routine panel's Authorization header. Paste the copied text as is: it includes the `Authorization:` label, and the Worker strips it. |
-| `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID` | Only if they did not use `npx wrangler login` |
+| Variable | Where it comes from | Device |
+| --- | --- | --- |
+| `BOT_TOKEN` | @BotFather, `/newbot` | Mobile is fine |
+| `ALLOWED_USER_IDS` | Their numeric id from @userinfobot. Separate several ids with commas. | Mobile is fine |
+| `GROKBOT_WEBHOOK_URL` | The routine panel's Webhook URL | Desktop only |
+| `GROKBOT_WEBHOOK_AUTH` | The routine panel's Authorization header. Paste the copied text as is: it includes the `Authorization:` label, and the Worker strips it. | Desktop only |
+| `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID` | Only if they did not use `npx wrangler login` | Either |
+
+You cannot read the Webhook URL or Authorization header yourself. Once the routine from step 1 exists, ask your human to open its panel in the Grok Bot desktop app and paste both values into masked fields. This is the one desktop step.
 
 ### 3. Run setup
 
@@ -88,7 +90,7 @@ Ask your human to enter these in your masked input. The routine panel's Webhook 
     npm install
     SECRETS_FILE="$HOME/.grokbot-telegram-mcp" bash scripts/setup.sh
 
-The script checks every value, deploys the Worker, generates the webhook secret and MCP bearer token, sets all secrets, and registers the Telegram webhook through `POST /setup`. It writes `MCP_URL` and `MCP_BEARER_TOKEN` to `SECRETS_FILE` (mode 600) instead of printing them. If the clone fails, tell your human the repo must be public or shared with you.
+The script checks every value, deploys the Worker, generates the webhook secret and MCP bearer token, sets every Worker secret itself through the Cloudflare API, and registers the Telegram webhook through `POST /setup`. It writes `MCP_URL` and `MCP_BEARER_TOKEN` to `SECRETS_FILE` (mode 600) instead of printing them. If the clone fails, tell your human the repo must be public or shared with you.
 
 ### 4. Add the MCP connector
 
