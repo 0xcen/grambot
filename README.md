@@ -1,6 +1,7 @@
 # Grambot
 
-<p align="center"><img src="assets/hero.svg" width="1280" alt="Grambot: your own Telegram client for your Grok Bot. A Telegram message goes through a tiny Cloudflare Worker to a Grok Bot routine, which replies in the same chat."></p>
+<img width="1918" height="820" alt="Your grok bot now on telegram" src="https://github.com/user-attachments/assets/e782ed03-cb4c-4464-9f4f-f63ac15d842a" />
+
 
 Chat with your Grok Bot from Telegram.
 
