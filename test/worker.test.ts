@@ -168,6 +168,12 @@ describe("POST /telegram", () => {
     expect(init.headers.Authorization).toBe("Bearer k3y-123");
   });
 
+  it.each(["Bearer", "Authorization: Bearer", '""'])("sends no auth header when %j holds no key", async (value) => {
+    await call(webhookRequest(telegramUpdate(111)), { GROKBOT_WEBHOOK_AUTH: value });
+    const [, init] = fetchMock.mock.calls[0];
+    expect(init.headers.Authorization).toBeUndefined();
+  });
+
   it("logs one status line per forward, without secrets, the webhook path, or the response body", async () => {
     const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
     fetchMock.mockResolvedValueOnce(new Response("echo routine-key-xyz", { status: 200 }));

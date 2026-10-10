@@ -98,7 +98,7 @@ function normalizeAuth(headerName: string, raw: string): string {
   if (v.toLowerCase().startsWith(prefix)) v = stripQuotes(v.slice(prefix.length));
   if (headerName.toLowerCase() !== "authorization") return v;
 
-  const key = stripQuotes(v.replace(/^bearer\s+/i, "")).replace(/\s+/g, "");
+  const key = stripQuotes(v.replace(/^bearer(\s+|$)/i, "")).replace(/\s+/g, "");
   return key ? `Bearer ${key}` : "";
 }
 
