@@ -10,7 +10,7 @@ Chat with your Grok Bot from Telegram.
 
 Your messages go to a Grok Bot routine, and the bot replies in the same chat through a send-only MCP connector.
 
-To install, give this README to your Grok Bot and say "set this up for me". The bot does the work and asks you for a few values. One step needs the Grok Bot desktop app.
+To install, give this README to your Grok Bot and say "set this up for me". The bot does the work and asks you for a few values, all from the Grok Bot app on any device.
 
 > [!WARNING]
 > Telegram bot chats are not end-to-end encrypted. Never send passwords, codes, keys or other sensitive data to the bot.
@@ -31,10 +31,10 @@ FYI: this Worker does not add Approve or Deny buttons, or deep links into Auto-r
 
 You need:
 
-- A Telegram bot from [@BotFather](https://t.me/BotFather): send `/newbot`, pick a name and username, keep the token. Fine to do on your phone.
+- A Telegram bot from [@BotFather](https://t.me/BotFather): send `/newbot`, pick a name and username, keep the token.
 - A Cloudflare account. Either let the bot run `npx wrangler login`, or create an API token with the "Edit Cloudflare Workers" template and note your account id.
 - Your numeric Telegram user id. Message [@userinfobot](https://t.me/userinfobot) to get it.
-- A Grok Bot, plus the Grok Bot desktop app for one setup step. The routine's Webhook URL and Authorization header are only shown in the desktop routine panel, and the bot cannot read them itself. Mobile alone is not enough.
+- A Grok Bot.
 
 The installing bot creates:
 
@@ -91,15 +91,15 @@ Create a routine with a webhook trigger. Use this prompt verbatim:
 
 Ask your human for each value in a masked field in this Grok Bot chat. Never over Telegram.
 
-| Variable | Where it comes from | Device |
-| --- | --- | --- |
-| `BOT_TOKEN` | @BotFather, `/newbot` | Mobile OK |
-| `ALLOWED_USER_IDS` | Their numeric id from @userinfobot. Separate several ids with commas. | Mobile OK |
-| `GROKBOT_WEBHOOK_URL` | The routine panel's Webhook URL | Desktop only |
-| `GROKBOT_WEBHOOK_AUTH` | The routine panel's Authorization header. Paste the copied text as is: it includes the `Authorization:` label, and the Worker strips it. | Desktop only |
-| `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID` | Only if they did not use `npx wrangler login` | Either |
+| Variable | Where it comes from |
+| --- | --- |
+| `BOT_TOKEN` | @BotFather, `/newbot` |
+| `ALLOWED_USER_IDS` | Their numeric id from @userinfobot. Separate several ids with commas. |
+| `GROKBOT_WEBHOOK_URL` | The routine panel's Webhook URL |
+| `GROKBOT_WEBHOOK_AUTH` | The routine panel's Authorization header. Paste the copied text as is: it includes the `Authorization:` label, and the Worker strips it. |
+| `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID` | Only if they did not use `npx wrangler login` |
 
-You cannot read the Webhook URL or Authorization header yourself. Once the routine from step 1 exists, ask your human to open its panel in the Grok Bot desktop app and paste both values into masked fields. This is the one desktop step.
+You cannot read the Webhook URL or Authorization header yourself. Once the routine from step 1 exists, ask your human to open its panel in the Grok Bot app and paste both values into masked fields.
 
 ### 3. Run setup
 
