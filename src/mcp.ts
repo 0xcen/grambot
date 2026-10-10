@@ -1,5 +1,6 @@
 import type { Env } from "./index";
-import { ALLOWLIST_CONFIG_ERROR, constantTimeEqual, isAllowed, parseAllowlist } from "./util";
+import { bearerMatches } from "./auth";
+import { ALLOWLIST_CONFIG_ERROR, isAllowed, parseAllowlist } from "./util";
 
 const SUPPORTED_PROTOCOL_VERSIONS = ["2025-06-18", "2025-03-26", "2024-11-05"];
 const LATEST_PROTOCOL_VERSION = SUPPORTED_PROTOCOL_VERSIONS[0];
@@ -84,9 +85,7 @@ export async function handleMcp(request: Request, env: Env): Promise<Response> {
     return new Response("Method Not Allowed", { status: 405, headers: { Allow: "POST" } });
   }
 
-  const auth = request.headers.get("Authorization") ?? "";
-  const token = /^Bearer\s+/i.test(auth) ? auth.replace(/^Bearer\s+/i, "") : "";
-  if (!env.MCP_BEARER_TOKEN || !(await constantTimeEqual(token, env.MCP_BEARER_TOKEN))) {
+  if (!(await bearerMatches(request, env.MCP_BEARER_TOKEN))) {
     return new Response("Unauthorized", {
       status: 401,
       headers: { "WWW-Authenticate": 'Bearer realm="mcp"' },

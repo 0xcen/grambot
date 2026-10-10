@@ -53,6 +53,15 @@ describe("secret comparisons go through constantTimeEqual", () => {
     expect((await worker.fetch(req, env, ctx)).status).toBe(401);
     expect(compareSpy).toHaveBeenCalledWith("guess", "mcp-token");
   });
+
+  it("checks the /setup bearer token with constantTimeEqual", async () => {
+    const req = new Request("https://w.example/setup", {
+      method: "POST",
+      headers: { Authorization: "Bearer guess" },
+    });
+    expect((await worker.fetch(req, env, ctx)).status).toBe(401);
+    expect(compareSpy).toHaveBeenCalledWith("guess", "mcp-token");
+  });
 });
 
 describe("constantTimeEqual", () => {

@@ -381,6 +381,75 @@ describe("ALLOWED_USER_IDS is required", () => {
   });
 });
 
+describe("POST /setup", () => {
+  function setupRequest(token: string | null = env.MCP_BEARER_TOKEN, method = "POST") {
+    const headers: Record<string, string> = {};
+    if (token !== null) headers.Authorization = `Bearer ${token}`;
+    return new Request(`https://grokbot-telegram.someone.workers.dev/setup`, { method, headers });
+  }
+
+  it("returns 401 without the bearer token", async () => {
+    const res = await call(setupRequest(null));
+    expect(res.status).toBe(401);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("returns 401 with the wrong bearer token", async () => {
+    const res = await call(setupRequest("wrong"));
+    expect(res.status).toBe(401);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it.each(["GET", "PUT", "DELETE"])("returns 405 for %s", async (method) => {
+    const res = await call(setupRequest(env.MCP_BEARER_TOKEN, method));
+    expect(res.status).toBe(405);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("calls setWebhook with this Worker's /telegram URL, the secret and message updates only", async () => {
+    fetchMock.mockResolvedValueOnce(
+      new Response(JSON.stringify({ ok: true, result: true, description: "Webhook was set" })),
+    );
+    const res = await call(setupRequest());
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ ok: true, description: "Webhook was set" });
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toBe("https://api.telegram.org/bot123:test-bot-token/setWebhook");
+    expect(JSON.parse(init.body)).toEqual({
+      url: "https://grokbot-telegram.someone.workers.dev/telegram",
+      secret_token: "tg-secret",
+      allowed_updates: ["message"],
+    });
+  });
+
+  it("returns only ok and description when Telegram fails, never the token", async () => {
+    fetchMock.mockResolvedValueOnce(
+      new Response(JSON.stringify({ ok: false, error_code: 401, description: "Unauthorized" }), {
+        status: 401,
+      }),
+    );
+    const res = await call(setupRequest());
+    expect(res.status).toBe(502);
+    const text = await res.text();
+    expect(JSON.parse(text)).toEqual({ ok: false, description: "Unauthorized" });
+    expect(text).not.toContain(env.BOT_TOKEN);
+    expect(text).not.toContain(env.TG_WEBHOOK_SECRET);
+  });
+
+  it.each([
+    ["BOT_TOKEN", { BOT_TOKEN: "" }],
+    ["TG_WEBHOOK_SECRET", { TG_WEBHOOK_SECRET: "" }],
+    ["ALLOWED_USER_IDS", { ALLOWED_USER_IDS: "" }],
+  ])("refuses without calling Telegram when %s is missing", async (name, overrides) => {
+    const res = await call(setupRequest(), overrides as Partial<Env>);
+    expect(res.status).toBe(503);
+    expect((await res.json<any>()).description).toContain(name);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+});
+
 describe("routing", () => {
   it.each(["/", "/telegram/extra", "/mcp/", "/admin"])("returns 404 for %s", async (path) => {
     const res = await call(new Request(`${BASE}${path}`, { method: "POST" }));

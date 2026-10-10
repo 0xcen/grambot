@@ -19,8 +19,6 @@ These instructions are for you, the Grok Bot. When you finish, your human can te
         curl -s "https://api.telegram.org/bot$BOT_TOKEN/getUpdates"
 
    This only works before the webhook is set in step 6. Store it as `TELEGRAM_USER_ID`. To allow more than one person later, use a comma separated list.
-4. Account security. Ask them to turn on Telegram two-step verification (Settings, Privacy and Security, Two-Step Verification). Anyone who takes over their Telegram account can talk to you as them, so do not continue until they confirm it is on.
-
 ## 2. Deploy the Worker
 
     git clone https://github.com/0xcen/grokbot-telegram.git
