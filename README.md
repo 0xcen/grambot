@@ -15,6 +15,12 @@ On cell data or messaging-only flight wifi you often can't use the Grok Bot app.
 
 From Telegram, tools your bot already has connected keep working. New connections, masked secret entry and Auto-review approval cards still need the Grok Bot app.
 
+Before a flight, or any stretch where you will not open the Grok Bot app, give your bot timed Auto-review Allow permissions for the known-safe actions it will need. For example: Shell, MCP writes, cloud agent launches and routine writes. Auto-review work can only proceed this way while you cannot tap an in-app card.
+
+Ordinary asks, draft sends ("send that") and standing send permissions can still be cleared by texting the bot.
+
+FYI: this Worker does not add Approve or Deny buttons, or deep links into Auto-review cards, to Telegram. Those cards live in the Grok Bot app.
+
 ## Prerequisites and connectors
 
 You need:
