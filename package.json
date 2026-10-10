@@ -11,11 +11,14 @@
   "scripts": {
     "dev": "wrangler dev",
     "deploy": "wrangler deploy",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.node.json",
+    "lint:sh": "shellcheck scripts/setup.sh",
     "test": "vitest run"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^5.20261010.1",
+    "@types/node": "^26.6.5",
+    "shellcheck": "^4.1.0",
     "typescript": "^7.0.2",
     "vitest": "^5.0.3",
     "wrangler": "^4.149.0"

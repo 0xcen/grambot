@@ -10,5 +10,6 @@
     "skipLibCheck": true,
     "isolatedModules": true
   },
-  "include": ["src", "test"]
+  "include": ["src", "test"],
+  "exclude": ["test/setup-script.test.ts"]
 }
