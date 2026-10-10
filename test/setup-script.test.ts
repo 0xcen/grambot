@@ -79,7 +79,7 @@ describe("scripts/setup.sh", () => {
     expect(r.calls).toBe("");
   });
 
-  it("new worker: deploys, sets every secret through stdin, calls /setup, prints the token once", () => {
+  it("new worker: deploys, sets every secret through stdin, calls /setup, never prints the token", () => {
     const r = run({ ...SECRETS, ALLOWED_USER_IDS: "123456789" });
     expect(r.code).toBe(0);
 
@@ -102,10 +102,28 @@ describe("scripts/setup.sh", () => {
     expect(r.calls).toContain(`header = "Authorization: Bearer ${token}"`);
 
     expect(r.out).toContain("MCP URL: https://grokbot-telegram.fake.workers.dev/mcp");
-    expect(r.out.split(token).length - 1).toBe(1);
+    expect(r.out).not.toContain(token);
     for (const value of Object.values(SECRETS)) expect(r.out).not.toContain(value);
     const tgSecret = r.calls.match(/PUT TG_WEBHOOK_SECRET --name \S+ value=(\S+)/)![1];
     expect(r.out).not.toContain(tgSecret);
+
+    const defaultFile = join(dir, ".grokbot-telegram-mcp");
+    expect(readFileSync(defaultFile, "utf8")).toBe(
+      `MCP_URL=https://grokbot-telegram.fake.workers.dev/mcp\nMCP_BEARER_TOKEN=${token}\n`,
+    );
+    expect(statSync(defaultFile).mode & 0o777).toBe(0o600);
+  });
+
+  it.each(["new", "existing"])("%s worker: refuses a non-https WORKER_URL before doing anything", (mode) => {
+    const r = run({
+      ...SECRETS,
+      ALLOWED_USER_IDS: "111",
+      WORKER_URL: "http://w.example",
+      ...(mode === "existing" ? { MCP_BEARER_TOKEN: "existing-bearer-token" } : {}),
+    });
+    expect(r.code).not.toBe(0);
+    expect(r.out).toContain("WORKER_URL must start with https://");
+    expect(r.calls).toBe("");
   });
 
   it("never passes secret values as command line arguments", () => {
@@ -150,6 +168,7 @@ describe("scripts/setup.sh", () => {
     expect(r.out).toContain("MCP URL: https://my-bridge.example.workers.dev/mcp");
     expect(r.out).not.toContain("existing-bearer-token");
     expect(existsSync(join(dir, "secrets.env"))).toBe(false);
+    expect(existsSync(join(dir, ".grokbot-telegram-mcp"))).toBe(false);
   });
 
   it("existing worker mode requires WORKER_URL", () => {
