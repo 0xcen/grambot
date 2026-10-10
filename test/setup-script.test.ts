@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process";
-import { chmodSync, mkdtempSync, readFileSync, statSync, writeFileSync, existsSync } from "node:fs";
+import { chmodSync, mkdtempSync, readFileSync, statSync, symlinkSync, writeFileSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { beforeEach, describe, expect, it } from "vitest";
@@ -146,6 +146,56 @@ describe("scripts/setup.sh", () => {
     );
     expect(statSync(file).mode & 0o777).toBe(0o600);
     expect(r.out).not.toContain(token);
+  });
+
+  it("replaces a pre-existing SECRETS_FILE with a fresh mode 600 file", () => {
+    const file = join(dir, "secrets.env");
+    writeFileSync(file, "old\n", { mode: 0o644 });
+    const r = run({ ...SECRETS, ALLOWED_USER_IDS: "111", SECRETS_FILE: file });
+    expect(r.code).toBe(0);
+    expect(statSync(file).mode & 0o777).toBe(0o600);
+    expect(readFileSync(file, "utf8")).toMatch(/^MCP_URL=\S+\nMCP_BEARER_TOKEN=[0-9a-f]{64}\n$/);
+  });
+
+  it("refuses a symlinked SECRETS_FILE before doing anything", () => {
+    const target = join(dir, "synced-dotfile");
+    writeFileSync(target, "");
+    const link = join(dir, "link.env");
+    symlinkSync(target, link);
+    const r = run({ ...SECRETS, ALLOWED_USER_IDS: "111", SECRETS_FILE: link });
+    expect(r.code).not.toBe(0);
+    expect(r.out).toContain("SECRETS_FILE must not be a symlink");
+    expect(r.calls).toBe("");
+    expect(readFileSync(target, "utf8")).toBe("");
+  });
+
+  it("refuses a SECRETS_FILE in a missing directory before doing anything", () => {
+    const r = run({ ...SECRETS, ALLOWED_USER_IDS: "111", SECRETS_FILE: join(dir, "nope", "s.env") });
+    expect(r.code).not.toBe(0);
+    expect(r.out).toContain("does not exist or is not writable");
+    expect(r.calls).toBe("");
+  });
+
+  it("new worker: keeps the generated token in SECRETS_FILE when /setup fails", () => {
+    const file = join(dir, "secrets.env");
+    const r = run({
+      ...SECRETS,
+      ALLOWED_USER_IDS: "111",
+      SECRETS_FILE: file,
+      FAKE_SETUP_RESPONSE: '{"ok":false,"description":"nope"}',
+    });
+    expect(r.code).not.toBe(0);
+    const token = r.calls.match(/PUT MCP_BEARER_TOKEN --name \S+ value=(\S+)/)![1];
+    expect(readFileSync(file, "utf8")).toContain(`MCP_BEARER_TOKEN=${token}\n`);
+    expect(r.out).toContain(`already saved in ${file}`);
+    expect(r.out).not.toContain(token);
+  });
+
+  it("existing worker: refuses an MCP_BEARER_TOKEN that would break the curl config", () => {
+    const r = run({ ...SECRETS, MCP_BEARER_TOKEN: 'ab"cd', WORKER_URL: "https://w.example" });
+    expect(r.code).not.toBe(0);
+    expect(r.out).toContain("MCP_BEARER_TOKEN contains characters");
+    expect(r.calls).toBe("");
   });
 
   it("existing worker: no deploy, keeps TG_WEBHOOK_SECRET and MCP_BEARER_TOKEN, uses WORKER_NAME and WORKER_URL", () => {

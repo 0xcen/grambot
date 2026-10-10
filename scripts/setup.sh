@@ -35,7 +35,8 @@ SECRETS_FILE="${SECRETS_FILE:-}"
 GROKBOT_WEBHOOK_AUTH_HEADER="${GROKBOT_WEBHOOK_AUTH_HEADER:-}"
 
 if [ -n "${MCP_BEARER_TOKEN:-}" ]; then MODE=existing; else MODE=new; fi
-[ "$MODE" = existing ] || SECRETS_FILE="${SECRETS_FILE:-$HOME/.grokbot-telegram-mcp}"
+[ "$MODE" = existing ] || SECRETS_FILE="${SECRETS_FILE:-${HOME:?set HOME or SECRETS_FILE}/.grokbot-telegram-mcp}"
+saved_note=""
 
 missing=()
 for var in BOT_TOKEN GROKBOT_WEBHOOK_URL GROKBOT_WEBHOOK_AUTH; do
@@ -56,6 +57,16 @@ if [ "$MODE" = new ]; then
   ALLOWED_USER_IDS="${ALLOWED_USER_IDS// /}"
   [[ "$ALLOWED_USER_IDS" =~ ^-?[0-9]+(,-?[0-9]+)*$ ]] \
     || die "ALLOWED_USER_IDS must be numeric Telegram user ids separated by commas"
+else
+  [[ "$MCP_BEARER_TOKEN" =~ ^[A-Za-z0-9._~+/=-]+$ ]] \
+    || die "MCP_BEARER_TOKEN contains characters a bearer token cannot have"
+fi
+if [ -n "$SECRETS_FILE" ]; then
+  [ ! -L "$SECRETS_FILE" ] || die "SECRETS_FILE must not be a symlink"
+  secrets_dir="$(dirname "$SECRETS_FILE")"
+  if [ ! -d "$secrets_dir" ] || [ ! -w "$secrets_dir" ]; then
+    die "the directory for SECRETS_FILE ($secrets_dir) does not exist or is not writable"
+  fi
 fi
 
 wrangler() { npx --yes wrangler "$@"; }
@@ -64,9 +75,19 @@ put_secret() {
   local name="$1" value="$2" out
   if ! out="$(printf '%s' "$value" | wrangler secret put "$name" --name "$WORKER_NAME" 2>&1)"; then
     printf '%s\n' "$out" >&2
-    die "could not set $name"
+    die "could not set $name.$saved_note"
   fi
   echo "  set $name"
+}
+
+# mktemp creates the file with mode 600, and mv replaces the target instead of
+# writing through an existing file's looser permissions.
+save_secrets() {
+  local tmp
+  tmp="$(mktemp "$(dirname "$SECRETS_FILE")/.grokbot-telegram-mcp.XXXXXX")"
+  printf 'MCP_URL=%s\nMCP_BEARER_TOKEN=%s\n' "$WORKER_URL/mcp" "$MCP_BEARER_TOKEN" > "$tmp"
+  mv -f "$tmp" "$SECRETS_FILE"
+  saved_note=" The MCP URL and bearer token are already saved in $SECRETS_FILE."
 }
 
 if [ "$MODE" = new ]; then
@@ -90,6 +111,7 @@ else
   echo "Existing worker mode: skipping deploy, keeping TG_WEBHOOK_SECRET and MCP_BEARER_TOKEN."
 fi
 WORKER_URL="${WORKER_URL%/}"
+[ -z "$SECRETS_FILE" ] || save_secrets
 
 echo "Setting secrets on $WORKER_NAME..."
 if [ "$MODE" = new ]; then
@@ -111,14 +133,11 @@ for attempt in 1 2 3 4 5; do
   [[ "$setup_out" == *'"ok":true'* ]] && break
   if [ "$attempt" -lt 5 ]; then sleep "${SETUP_RETRY_DELAY:-3}"; fi
 done
-[[ "$setup_out" == *'"ok":true'* ]] || die "POST /setup failed: $setup_out"
+[[ "$setup_out" == *'"ok":true'* ]] || die "POST /setup failed: $setup_out.$saved_note"
 echo "  $setup_out"
 
-MCP_URL="$WORKER_URL/mcp"
 if [ -n "$SECRETS_FILE" ]; then
-  (umask 077 && printf 'MCP_URL=%s\nMCP_BEARER_TOKEN=%s\n' "$MCP_URL" "$MCP_BEARER_TOKEN" > "$SECRETS_FILE")
-  chmod 600 "$SECRETS_FILE"
-  printf '\nDone.\nMCP URL: %s\nMCP URL and bearer token written to %s (mode 600).\n' "$MCP_URL" "$SECRETS_FILE"
+  printf '\nDone.\nMCP URL: %s/mcp\nMCP URL and bearer token written to %s (mode 600).\n' "$WORKER_URL" "$SECRETS_FILE"
 else
-  printf '\nDone.\nMCP URL: %s\nThe MCP bearer token is unchanged.\n' "$MCP_URL"
+  printf '\nDone.\nMCP URL: %s/mcp\nThe MCP bearer token is unchanged.\n' "$WORKER_URL"
 fi
