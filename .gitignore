@@ -1,9 +1,13 @@
 node_modules/
 .wrangler/
 dist/
-.dev.vars
-.dev.vars.*
-.env
-.env.*
+coverage/
+.dev.vars*
+.env*
+.grokbot-telegram-mcp
+secrets.env
+*.secrets
+*.pem
+*.key
 *.log
 .DS_Store

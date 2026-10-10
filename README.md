@@ -102,7 +102,7 @@ You cannot read the Webhook URL or Authorization header yourself. Once the routi
     npm install
     SECRETS_FILE="$HOME/.grokbot-telegram-mcp" bash scripts/setup.sh
 
-The script checks every value, deploys the Worker, generates the webhook secret and MCP bearer token, sets every Worker secret itself through the Cloudflare API, and registers the Telegram webhook through `POST /setup`. It writes `MCP_URL` and `MCP_BEARER_TOKEN` to `SECRETS_FILE` (mode 600) instead of printing them. If the clone fails, tell your human the repo must be public or shared with you.
+The script checks every value, deploys the Worker, generates the webhook secret and MCP bearer token, sets every Worker secret itself through the Cloudflare API, and registers the Telegram webhook through `POST /setup`. It writes `MCP_URL` and `MCP_BEARER_TOKEN` to `SECRETS_FILE` (mode 600) instead of printing them.
 
 ### 4. Add the MCP connector
 
@@ -123,4 +123,4 @@ With `MCP_BEARER_TOKEN` set, the script skips the deploy, keeps the webhook secr
 
 ## Development
 
-`npm install`, `npm test`, `npm run typecheck`. MIT licensed.
+`npm install`, `npm test`, `npm run typecheck`, `npm run lint:sh`. MIT licensed.
