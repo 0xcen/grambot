@@ -148,31 +148,31 @@ describe("POST /telegram", () => {
   );
 
   it.each([
-    ["bare key", "k3y-123", { hadBearer: false, hadHeaderName: false, hadQuotes: false }],
-    ["Bearer key", "Bearer k3y-123", { hadBearer: true }],
-    ["lowercase bearer, extra spaces", "bearer    k3y-123", { hadBearer: true }],
-    ["trailing newline", "Bearer k3y-123\n", { hadEdgeWhitespace: true }],
-    ["CRLF and spaces", "  k3y-123\r\n", { hadEdgeWhitespace: true }],
-    ["double quoted", '"Bearer k3y-123"', { hadQuotes: true, hadBearer: true }],
-    ["single quoted bare key", "'k3y-123'", { hadQuotes: true }],
-    ["full header line", "Authorization: Bearer k3y-123", { hadHeaderName: true, hadBearer: true }],
-    ["header line, no space", "authorization:Bearer k3y-123", { hadHeaderName: true }],
-    ["header line with bare key", "Authorization: k3y-123", { hadHeaderName: true, hadBearer: false }],
-    ["quoted header line + newline", '"Authorization: Bearer k3y-123"\n', { hadQuotes: true, hadHeaderName: true }],
-    ["header line with quoted value", 'Authorization: "Bearer k3y-123"', { hadQuotes: true, hadHeaderName: true }],
-    ["quoted key after Bearer", 'Bearer "k3y-123"', { hadQuotes: true, hadBearer: true }],
-    ["zero-width and BOM", "\uFEFFBearer k3y-123\u200B", { hadInvisibleChars: true }],
-  ])("normalizes %s to exactly 'Bearer <key>' and logs only the shape", async (_, value, shape) => {
-    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    ["bare key", "k3y-123"],
+    ["Bearer key", "Bearer k3y-123"],
+    ["lowercase bearer, extra spaces", "bearer    k3y-123"],
+    ["trailing newline", "Bearer k3y-123\n"],
+    ["CRLF and spaces", "  k3y-123\r\n"],
+    ["double quoted", '"Bearer k3y-123"'],
+    ["single quoted bare key", "'k3y-123'"],
+    ["full header line", "Authorization: Bearer k3y-123"],
+    ["header line, no space", "authorization:Bearer k3y-123"],
+    ["header line with bare key", "Authorization: k3y-123"],
+    ["quoted header line + newline", '"Authorization: Bearer k3y-123"\n'],
+    ["header line with quoted value", 'Authorization: "Bearer k3y-123"'],
+    ["quoted key after Bearer", 'Bearer "k3y-123"'],
+    ["zero-width and BOM", "\uFEFFBearer k3y-123\u200B"],
+  ])("normalizes %s to exactly 'Bearer <key>'", async (_, value) => {
     await call(webhookRequest(telegramUpdate(111)), { GROKBOT_WEBHOOK_AUTH: value });
     const [, init] = fetchMock.mock.calls[0];
     expect(init.headers.Authorization).toBe("Bearer k3y-123");
+  });
 
-    const shapeLine = logSpy.mock.calls.flat().find((l) => String(l).startsWith("forward auth shape:"));
-    expect(shapeLine).toBeDefined();
-    expect(shapeLine).not.toContain("k3y-123");
-    const logged = JSON.parse(String(shapeLine).match(/(\{.*\})/)![1]);
-    expect(logged).toMatchObject({ length: value.length, ...shape });
+  it("logs one status line per forward, without secrets, the webhook path, or the response body", async () => {
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    fetchMock.mockResolvedValueOnce(new Response("echo routine-key-xyz", { status: 200 }));
+    await call(webhookRequest(telegramUpdate(111)));
+    expect(logSpy.mock.calls.flat()).toEqual(["forward ok: Grok Bot webhook returned HTTP 200"]);
   });
 
   it("uses GROKBOT_WEBHOOK_AUTH_HEADER as the header name when set", async () => {
@@ -494,7 +494,7 @@ describe("POST /setup", () => {
 });
 
 describe("routing", () => {
-  it.each(["/", "/telegram/extra", "/mcp/", "/admin"])("returns 404 for %s", async (path) => {
+  it.each(["/", "/telegram/extra", "/mcp/", "/admin", "/debug"])("returns 404 for %s", async (path) => {
     const res = await call(new Request(`${BASE}${path}`, { method: "POST" }));
     expect(res.status).toBe(404);
     expect(fetchMock).not.toHaveBeenCalled();

@@ -52,13 +52,6 @@ export async function handleTelegramWebhook(
     return ok();
   }
 
-  const kinds = Object.keys(update).filter((k) => k !== "update_id");
-  const fromId = (update as unknown as Record<string, { from?: { id?: unknown } } | undefined>)[kinds[0] ?? ""]
-    ?.from?.id;
-  console.log(
-    `telegram: update kinds=${kinds.join(",") || "none"} from.id=${String(fromId)} has_text=${typeof update.message?.text === "string"}`,
-  );
-
   const allowlist = parseAllowlist(env.ALLOWED_USER_IDS);
   if (!allowlist) {
     console.error("config error: ALLOWED_USER_IDS is empty or invalid, dropping update");
@@ -68,7 +61,7 @@ export async function handleTelegramWebhook(
   const message = update.message;
   if (!message?.from || typeof message.text !== "string") return ok();
   if (!isAllowed(allowlist, message.from.id)) {
-    console.log(`telegram: from.id=${message.from.id} not allowlisted, dropping`);
+    console.log("telegram: sender is not allowlisted, dropping");
     return ok();
   }
 
@@ -84,25 +77,14 @@ export async function handleTelegramWebhook(
   return ok();
 }
 
-export interface AuthShape {
-  length: number;
-  hadEdgeWhitespace: boolean;
-  hadQuotes: boolean;
-  hadHeaderName: boolean;
-  hadBearer: boolean;
-  hadInvisibleChars: boolean;
-}
-
 const INVISIBLE = /[\u200B-\u200D\u2060\uFEFF]/g;
 
-function stripQuotes(value: string): { value: string; stripped: boolean } {
-  let stripped = false;
+function stripQuotes(value: string): string {
   let v = value.trim();
   while (v.length >= 2 && /^["'`].*["'`]$/s.test(v) && v[0] === v[v.length - 1]) {
     v = v.slice(1, -1).trim();
-    stripped = true;
   }
-  return { value: v, stripped };
+  return v;
 }
 
 /**
@@ -110,40 +92,14 @@ function stripQuotes(value: string): { value: string; stripped: boolean } {
  * a full "Authorization: Bearer <key>" line, quoted, with stray newlines) and returns
  * the exact header value. For the Authorization header that is always "Bearer <key>".
  */
-export function normalizeAuth(headerName: string, raw: string): { value: string; shape: AuthShape } {
-  const shape: AuthShape = {
-    length: raw.length,
-    hadEdgeWhitespace: raw !== raw.trim(),
-    hadQuotes: false,
-    hadHeaderName: false,
-    hadBearer: false,
-    hadInvisibleChars: raw.replace(INVISIBLE, "") !== raw,
-  };
-  let v = raw.replace(INVISIBLE, "").trim();
-
-  let q = stripQuotes(v);
-  v = q.value;
-  shape.hadQuotes = q.stripped;
-
+function normalizeAuth(headerName: string, raw: string): string {
+  let v = stripQuotes(raw.replace(INVISIBLE, ""));
   const prefix = `${headerName.toLowerCase()}:`;
-  if (v.toLowerCase().startsWith(prefix)) {
-    shape.hadHeaderName = true;
-    q = stripQuotes(v.slice(prefix.length));
-    v = q.value;
-    shape.hadQuotes ||= q.stripped;
-  }
+  if (v.toLowerCase().startsWith(prefix)) v = stripQuotes(v.slice(prefix.length));
+  if (headerName.toLowerCase() !== "authorization") return v;
 
-  if (headerName.toLowerCase() !== "authorization") return { value: v, shape };
-
-  const bearer = /^bearer\s+/i.exec(v);
-  if (bearer) {
-    shape.hadBearer = true;
-    v = v.slice(bearer[0].length);
-  }
-  q = stripQuotes(v);
-  shape.hadQuotes ||= q.stripped;
-  const key = q.value.replace(/\s+/g, "");
-  return { value: key ? `Bearer ${key}` : "", shape };
+  const key = stripQuotes(v.replace(/^bearer\s+/i, "")).replace(/\s+/g, "");
+  return key ? `Bearer ${key}` : "";
 }
 
 async function forwardToGrokBot(env: Env, payload: ForwardPayload): Promise<void> {
@@ -154,11 +110,8 @@ async function forwardToGrokBot(env: Env, payload: ForwardPayload): Promise<void
 
   const headerName = env.GROKBOT_WEBHOOK_AUTH_HEADER?.trim() || "Authorization";
   const headers: Record<string, string> = { "Content-Type": "application/json" };
-  if (env.GROKBOT_WEBHOOK_AUTH) {
-    const { value, shape } = normalizeAuth(headerName, env.GROKBOT_WEBHOOK_AUTH);
-    console.log(`forward auth shape: header=${headerName} ${JSON.stringify(shape)} sentLength=${value.length}`);
-    if (value) headers[headerName] = value;
-  }
+  const auth = env.GROKBOT_WEBHOOK_AUTH ? normalizeAuth(headerName, env.GROKBOT_WEBHOOK_AUTH) : "";
+  if (auth) headers[headerName] = auth;
 
   try {
     const res = await fetch(env.GROKBOT_WEBHOOK_URL, {
@@ -166,8 +119,7 @@ async function forwardToGrokBot(env: Env, payload: ForwardPayload): Promise<void
       headers,
       body: JSON.stringify(payload),
     });
-    const snippet = (await res.text().catch(() => "")).slice(0, 200).replace(/\s+/g, " ");
-    const line = `forward ${res.ok ? "ok" : "failed"}: Grok Bot webhook returned HTTP ${res.status} body=${snippet}`;
+    const line = `forward ${res.ok ? "ok" : "failed"}: Grok Bot webhook returned HTTP ${res.status}`;
     if (res.ok) console.log(line);
     else console.error(line);
   } catch (err) {
