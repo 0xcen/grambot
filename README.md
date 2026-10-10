@@ -16,7 +16,7 @@ You need:
 - A Telegram bot from [@BotFather](https://t.me/BotFather): send `/newbot`, pick a name and username, keep the token.
 - A Cloudflare account. Either let the bot run `npx wrangler login`, or create an API token with the "Edit Cloudflare Workers" template and note your account id.
 - Your numeric Telegram user id. Message [@userinfobot](https://t.me/userinfobot) to get it.
-- A Grok Bot.
+- A Grok Bot, and the Grok Bot desktop app for setup. The routine panel's Webhook URL and Authorization header are only visible in the desktop app; mobile cannot show them.
 
 The installing bot creates:
 
@@ -71,7 +71,7 @@ Create a routine with a webhook trigger. Use this prompt verbatim:
 
 ### 2. Collect the values
 
-Ask your human to enter these in your masked input:
+Ask your human to enter these in your masked input. The routine panel's Webhook URL and Authorization header are only visible in the Grok Bot desktop app, so they must do this step on desktop; mobile cannot show those values.
 
 | Variable | Where it comes from |
 | --- | --- |
