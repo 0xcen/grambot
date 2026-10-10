@@ -75,8 +75,8 @@ Ask your human for each value in a masked field in this Grok Bot chat. Never ove
 
 | Variable | Where it comes from | Device |
 | --- | --- | --- |
-| `BOT_TOKEN` | @BotFather, `/newbot` | Mobile is fine |
-| `ALLOWED_USER_IDS` | Their numeric id from @userinfobot. Separate several ids with commas. | Mobile is fine |
+| `BOT_TOKEN` | @BotFather, `/newbot` | Mobile OK |
+| `ALLOWED_USER_IDS` | Their numeric id from @userinfobot. Separate several ids with commas. | Mobile OK |
 | `GROKBOT_WEBHOOK_URL` | The routine panel's Webhook URL | Desktop only |
 | `GROKBOT_WEBHOOK_AUTH` | The routine panel's Authorization header. Paste the copied text as is: it includes the `Authorization:` label, and the Worker strips it. | Desktop only |
 | `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID` | Only if they did not use `npx wrangler login` | Either |
