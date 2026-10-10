@@ -9,6 +9,12 @@ To install, give this README to your Grok Bot and say "set this up for me". The 
 > [!WARNING]
 > Telegram bot chats are not end-to-end encrypted. Never send passwords, codes, keys or other sensitive data to the bot.
 
+## Why use this
+
+On cell data or messaging-only flight wifi you often can't use the Grok Bot app. This is a dead-simple way to talk to your main bot from Telegram instead.
+
+From Telegram, tools your bot already has connected keep working. New connections, masked secret entry and Auto-review approval cards still need the Grok Bot app.
+
 ## Prerequisites and connectors
 
 You need:
