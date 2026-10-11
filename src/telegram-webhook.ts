@@ -43,7 +43,7 @@ interface TelegramMessage {
   voice?: TelegramFile;
   audio?: TelegramFile;
   document?: TelegramFile;
-  reply_to_message?: { message_id: number; text?: string; caption?: string };
+  reply_to_message?: { message_id: number; text?: string; caption?: string } & Partial<Record<ReplyMediaKind, unknown>>;
   from?: TelegramUser;
   chat: { id: number; type?: string };
 }
@@ -86,7 +86,7 @@ export interface BufferedMessage {
   reply_to?: ReplyTo;
 }
 
-/** The message this one replies to: its id, and an excerpt of its text or caption when it has one. */
+/** The message this one replies to: its id, and an excerpt of its text or caption, or a label such as [photo] for bare media. */
 export interface ReplyTo {
   message_id: number;
   text?: string;
@@ -166,6 +166,7 @@ export async function resolveMedia(env: Env, origin: string, media: IncomingMedi
 function messageEntry(message: TelegramMessage): BufferedMessage | undefined {
   const media = extractMedia(message);
   if (!message.from || (typeof message.text !== "string" && !media)) return undefined;
+  const reply = replyTo(message.reply_to_message);
   return {
     message_id: message.message_id,
     date: message.date,
@@ -174,14 +175,20 @@ function messageEntry(message: TelegramMessage): BufferedMessage | undefined {
     caption: media ? message.caption : undefined,
     media_group_id: media ? message.media_group_id : undefined,
     media,
-    reply_to: replyTo(message.reply_to_message),
+    ...(reply ? { reply_to: reply } : {}),
   };
 }
 
+// Animations also carry a document field, so animation is checked before document.
+const REPLY_MEDIA_KINDS = ["photo", "video", "animation", "video_note", "voice", "audio", "document", "sticker"] as const;
+type ReplyMediaKind = (typeof REPLY_MEDIA_KINDS)[number];
+
 function replyTo(original: TelegramMessage["reply_to_message"]): ReplyTo | undefined {
   if (typeof original?.message_id !== "number") return undefined;
-  const source = typeof original.text === "string" && original.text ? original.text : original.caption;
-  if (typeof source !== "string" || !source) return { message_id: original.message_id };
+  const words = [original.text, original.caption].find((v): v is string => typeof v === "string" && v.length > 0);
+  const kind = REPLY_MEDIA_KINDS.find((k) => original[k] !== undefined && original[k] !== null);
+  const source = words ?? (kind ? `[${kind}]` : undefined);
+  if (!source) return { message_id: original.message_id };
   const chars = [...source];
   const text = chars.length > REPLY_TO_MAX_CHARS ? `${chars.slice(0, REPLY_TO_MAX_CHARS - 1).join("")}…` : source;
   return { message_id: original.message_id, text };

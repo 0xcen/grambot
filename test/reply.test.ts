@@ -72,7 +72,7 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-describe("reply_to on forwarded messages", () => {
+describe("R1 reply to a text message", () => {
   it("carries the replied-to message's id and text", async () => {
     await send(50, { text: "yes, do that", reply_to_message: original({ text: "Shall I book the 9am train?" }) });
     expect(await flushed()).toEqual([
@@ -86,53 +86,78 @@ describe("reply_to on forwarded messages", () => {
     ]);
   });
 
+  it("prefers text over caption", async () => {
+    await send(52, { text: "ok", reply_to_message: original({ text: "the text", caption: "a caption" }) });
+    expect((await flushed())[0].reply_to).toEqual({ message_id: 40, text: "the text" });
+  });
+});
+
+describe("R2 reply to media", () => {
   it("uses the caption when the replied-to message has no text", async () => {
     await send(51, { text: "where is this?", reply_to_message: original({ photo: [{ file_id: "p", width: 1, height: 1 }], caption: "Sunset at the pier" }) });
     expect((await flushed())[0].reply_to).toEqual({ message_id: 40, text: "Sunset at the pier" });
   });
 
-  it("prefers text over caption", async () => {
-    await send(52, { text: "ok", reply_to_message: original({ text: "the text", caption: "a caption" }) });
-    expect((await flushed())[0].reply_to).toEqual({ message_id: 40, text: "the text" });
+  it.each([
+    ["photo", { photo: [{ file_id: "p", width: 1, height: 1 }] }],
+    ["voice", { voice: { file_id: "v", duration: 3 } }],
+    ["audio", { audio: { file_id: "a", duration: 90 } }],
+    ["document", { document: { file_id: "d", file_name: "report.pdf" } }],
+    ["sticker", { sticker: { file_id: "s", emoji: "👍" } }],
+    ["video", { video: { file_id: "vid", duration: 5 } }],
+    ["video_note", { video_note: { file_id: "vn", duration: 5 } }],
+    ["animation", { animation: { file_id: "gif" }, document: { file_id: "gif" } }],
+  ])("labels a bare %s as [%s]", async (kind, media) => {
+    await send(53, { text: "what's this?", reply_to_message: original({ ...media, caption: "" }) });
+    expect((await flushed())[0].reply_to).toEqual({ message_id: 40, text: `[${kind}]` });
   });
 
-  it("keeps only message_id when the replied-to message has no text or caption", async () => {
-    await send(53, { text: "what's this?", reply_to_message: original({ voice: { file_id: "v" } }) });
-    await send(54, { text: "and this?", reply_to_message: original({ message_id: 41, text: "" }) });
-    const entries = await flushed();
-    expect(entries.map((m) => m.reply_to)).toEqual([{ message_id: 40 }, { message_id: 41 }]);
-    expect(entries[0].reply_to).not.toHaveProperty("text");
+  it("keeps only message_id when the replied-to message has no text, caption or known media", async () => {
+    await send(54, { text: "and this?", reply_to_message: original({ location: { latitude: 1, longitude: 2 } }) });
+    const [entry] = await flushed();
+    expect(entry.reply_to).toEqual({ message_id: 40 });
+    expect(entry.reply_to).not.toHaveProperty("text");
   });
+});
 
-  it("truncates long replied-to text to 300 characters ending in an ellipsis", async () => {
+describe("R3 truncation", () => {
+  it("cuts long replied-to text to 300 characters ending in an ellipsis", async () => {
     await send(55, { text: "summarise", reply_to_message: original({ text: "a".repeat(1000) }) });
     await send(56, { text: "exact", reply_to_message: original({ message_id: 41, text: "b".repeat(300) }) });
     await send(57, { text: "emoji", reply_to_message: original({ message_id: 42, text: "😀".repeat(301) }) });
-    const [long, exact, emoji] = (await flushed()).map((m) => m.reply_to.text);
+    await send(58, { text: "caption", reply_to_message: original({ message_id: 43, photo: [{ file_id: "p", width: 1, height: 1 }], caption: "c".repeat(301) }) });
+    const [long, exact, emoji, caption] = (await flushed()).map((m) => m.reply_to.text);
     expect(long).toBe(`${"a".repeat(299)}…`);
     expect([...long]).toHaveLength(300);
     expect(exact).toBe("b".repeat(300));
     expect(emoji).toBe(`${"😀".repeat(299)}…`);
+    expect(caption).toBe(`${"c".repeat(299)}…`);
   });
+});
 
-  it("omits reply_to on messages that are not replies", async () => {
-    await send(58, { text: "plain" });
-    expect((await flushed())[0]).not.toHaveProperty("reply_to");
-  });
-
-  it("keeps each message's reply_to inside one debounced batch", async () => {
+describe("R4 replies inside a debounced burst", () => {
+  it("forwards a burst of 3 exactly once, with reply_to only on the reply", async () => {
     await send(60, { text: "first, no reply" });
     await vi.advanceTimersByTimeAsync(500);
     await send(61, { text: "yes to this", reply_to_message: original({ message_id: 44, text: "Want the summary?" }) });
     await vi.advanceTimersByTimeAsync(500);
-    await send(62, { photo: [{ file_id: "p1", width: 1, height: 1 }], caption: "and this one", reply_to_message: original({ message_id: 45, caption: "Old photo" }) });
+    await send(62, { text: "third, no reply" });
     const entries = await flushed();
-    const batches = fetchMock.mock.calls.filter(([url]) => url === env.GROKBOT_WEBHOOK_URL);
-    expect(batches).toHaveLength(1);
-    expect(entries.map((m) => [m.message_id, m.reply_to ?? null])).toEqual([
-      [60, null],
-      [61, { message_id: 44, text: "Want the summary?" }],
-      [62, { message_id: 45, text: "Old photo" }],
-    ]);
+    expect(fetchMock.mock.calls.filter(([url]) => url === env.GROKBOT_WEBHOOK_URL)).toHaveLength(1);
+    expect(entries.map((m) => m.message_id)).toEqual([60, 61, 62]);
+    expect(entries.map((m) => Object.hasOwn(m, "reply_to"))).toEqual([false, true, false]);
+    expect(entries[1].reply_to).toEqual({ message_id: 44, text: "Want the summary?" });
+  });
+});
+
+describe("R5 non-replies", () => {
+  it.each([
+    ["text", { text: "plain" }],
+    ["photo with caption", { photo: [{ file_id: "p1", width: 1, height: 1 }], caption: "look" }],
+  ])("a %s message has no reply_to field at all", async (_, fields) => {
+    await send(70, fields);
+    const [entry] = await flushed();
+    expect(entry).not.toHaveProperty("reply_to");
+    expect(Object.keys(entry)).not.toContain("reply_to");
   });
 });
