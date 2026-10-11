@@ -11,17 +11,21 @@ export interface Env {
   GROKBOT_WEBHOOK_URL: string;
   GROKBOT_WEBHOOK_AUTH: string;
   GROKBOT_WEBHOOK_AUTH_HEADER?: string;
+  DEBOUNCE_MS?: string;
+  CHAT_BUFFER: DurableObjectNamespace;
 }
 
+export { ChatBuffer } from "./chat-buffer";
+
 export default {
-  async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
+  async fetch(request: Request, env: Env): Promise<Response> {
     const { pathname } = new URL(request.url);
 
     if (pathname === "/telegram") {
       if (request.method !== "POST") {
         return new Response("Method Not Allowed", { status: 405, headers: { Allow: "POST" } });
       }
-      return handleTelegramWebhook(request, env, ctx);
+      return handleTelegramWebhook(request, env);
     }
 
     if (pathname === "/mcp") {

@@ -1,12 +1,14 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import worker, { type Env } from "../src/index";
+import { fakeChatBuffers } from "./fake-chat-buffer";
 
 const BASE = "https://worker.example";
+const buffers = fakeChatBuffers();
 const NOW = Date.UTC(2026, 9, 11, 12, 0, 0);
 const NOW_S = NOW / 1000;
 const MB = 1024 * 1024;
 
-const env: Env = {
+const env: Omit<Env, "CHAT_BUFFER"> = {
   BOT_TOKEN: "123:test-bot-token",
   TG_WEBHOOK_SECRET: "tg-secret",
   MCP_BEARER_TOKEN: "mcp-token",
@@ -24,7 +26,6 @@ const FILES: Record<string, { file_path: string; file_size: number; bytes: strin
 };
 
 let fetchMock: ReturnType<typeof vi.fn>;
-let pending: Promise<unknown>[];
 
 const tgJson = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
@@ -46,13 +47,11 @@ function fakeNetwork(url: string, init?: RequestInit): Response {
   return new Response("ok");
 }
 
-function ctx(): ExecutionContext {
-  return { waitUntil: (p: Promise<unknown>) => pending.push(p), passThroughOnException: () => {}, props: {} } as unknown as ExecutionContext;
-}
-
 async function call(req: Request, overrides: Partial<Env> = {}): Promise<Response> {
-  const res = await worker.fetch(req, { ...env, ...overrides }, ctx());
-  await Promise.all(pending);
+  const e = { ...env, ...overrides } as Env;
+  e.CHAT_BUFFER = buffers.namespace(e);
+  const res = await worker.fetch(req, e);
+  await buffers.flush();
   return res;
 }
 
@@ -75,10 +74,17 @@ function webhook(body: unknown, secret: string | null = env.TG_WEBHOOK_SECRET) {
   return new Request(`${BASE}/telegram`, { method: "POST", headers, body: JSON.stringify(body) });
 }
 
-function forwarded(): any {
+function forwardedBatch(): any {
   const calls = fetchMock.mock.calls.filter(([url]) => url === env.GROKBOT_WEBHOOK_URL);
   expect(calls).toHaveLength(1);
   return JSON.parse(calls[0][1].body);
+}
+
+function forwarded(): any {
+  const batch = forwardedBatch();
+  expect(batch.messages).toHaveLength(1);
+  const [message] = batch.messages;
+  return { ...message, ...(message.media ? { media: message.media[0] } : {}) };
 }
 
 const telegramCalls = () => fetchMock.mock.calls.map(([url]) => String(url)).filter((u) => u.includes("api.telegram.org"));
@@ -91,7 +97,6 @@ const MEDIA_UPDATES: [string, Record<string, unknown>][] = [
 ];
 
 beforeEach(() => {
-  pending = [];
   vi.useFakeTimers({ toFake: ["Date"] });
   vi.setSystemTime(NOW);
   fetchMock = vi.fn(async (url: string, init?: RequestInit) => fakeNetwork(url, init));
@@ -101,6 +106,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  buffers.reset();
   vi.useRealTimers();
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
@@ -149,22 +155,28 @@ describe("POST /telegram with media", () => {
     const getFileBody = JSON.parse(fetchMock.mock.calls.find(([u]) => String(u).endsWith("/getFile"))![1].body);
     expect(getFileBody).toEqual({ file_id: "photo-big" });
 
-    const body = forwarded();
-    expect(body).toEqual({
+    const batch = forwardedBatch();
+    expect(batch).toEqual({
       chat_id: 222,
-      message_id: 42,
-      date: 1_700_000_000,
-      from: { id: 222, is_bot: false, first_name: "Ada" },
-      caption: "what is this?",
-      media: {
-        type: "photo",
-        mime_type: "image/jpeg",
-        file_size: 120_000,
-        url: expect.stringMatching(/^https:\/\/worker\.example\/file\/photo-big\?exp=\d+&sig=[0-9a-f]{64}$/),
-        expires_at: NOW_S + 900,
-      },
+      messages: [
+        {
+          message_id: 42,
+          date: 1_700_000_000,
+          from: { id: 222, is_bot: false, first_name: "Ada" },
+          caption: "what is this?",
+          media: [
+            {
+              type: "photo",
+              mime_type: "image/jpeg",
+              file_size: 120_000,
+              url: expect.stringMatching(/^https:\/\/worker\.example\/file\/photo-big\?exp=\d+&sig=[0-9a-f]{64}$/),
+              expires_at: NOW_S + 900,
+            },
+          ],
+        },
+      ],
     });
-    expect(body.media.url).toContain(`exp=${NOW_S + 900}`);
+    expect(batch.messages[0].media[0].url).toContain(`exp=${NOW_S + 900}`);
   });
 
   it.each([
@@ -189,7 +201,7 @@ describe("POST /telegram with media", () => {
 
   it("never puts BOT_TOKEN or the Telegram file path in the forwarded payload", async () => {
     await call(webhook(update(111, MEDIA_UPDATES[3][1])));
-    const raw = JSON.stringify(forwarded());
+    const raw = JSON.stringify(forwardedBatch());
     expect(raw).not.toContain(env.BOT_TOKEN);
     expect(raw).not.toContain("documents/file_5.pdf");
     expect(raw).not.toContain("api.telegram.org");
@@ -232,8 +244,7 @@ describe("GET /file/<file_id>", () => {
     await call(webhook(update(111, fields)));
     const url = forwarded().media.url as string;
     fetchMock.mockClear();
-    pending = [];
-    return url;
+      return url;
   }
 
   const get = (url: string, overrides: Partial<Env> = {}) => call(new Request(url), overrides);

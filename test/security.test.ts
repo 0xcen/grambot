@@ -9,6 +9,7 @@ vi.mock("../src/util", async (importOriginal) => {
 });
 
 const { default: worker } = await import("../src/index");
+type Env = import("../src/index").Env;
 const { constantTimeEqual, parseAllowlist } = await vi.importActual<typeof import("../src/util")>(
   "../src/util",
 );
@@ -21,7 +22,6 @@ const env = {
   GROKBOT_WEBHOOK_URL: "https://grokbot.example/hooks/abc",
   GROKBOT_WEBHOOK_AUTH: "Bearer routine-key",
 };
-const ctx = { waitUntil: () => {}, passThroughOnException: () => {} } as unknown as ExecutionContext;
 
 beforeEach(() => {
   compareSpy.mockClear();
@@ -40,7 +40,7 @@ describe("secret comparisons go through constantTimeEqual", () => {
       headers: { "X-Telegram-Bot-Api-Secret-Token": "guess" },
       body: "{}",
     });
-    expect((await worker.fetch(req, env, ctx)).status).toBe(401);
+    expect((await worker.fetch(req, env as unknown as Env)).status).toBe(401);
     expect(compareSpy).toHaveBeenCalledWith("guess", "tg-secret");
   });
 
@@ -50,7 +50,7 @@ describe("secret comparisons go through constantTimeEqual", () => {
       headers: { Authorization: "Bearer guess" },
       body: "{}",
     });
-    expect((await worker.fetch(req, env, ctx)).status).toBe(401);
+    expect((await worker.fetch(req, env as unknown as Env)).status).toBe(401);
     expect(compareSpy).toHaveBeenCalledWith("guess", "mcp-token");
   });
 
@@ -59,13 +59,13 @@ describe("secret comparisons go through constantTimeEqual", () => {
       method: "POST",
       headers: { Authorization: "Bearer guess" },
     });
-    expect((await worker.fetch(req, env, ctx)).status).toBe(401);
+    expect((await worker.fetch(req, env as unknown as Env)).status).toBe(401);
     expect(compareSpy).toHaveBeenCalledWith("guess", "mcp-token");
   });
 
   it("checks /file link signatures with constantTimeEqual", async () => {
     const req = new Request("https://w.example/file/abc?exp=9999999999&sig=guess");
-    expect((await worker.fetch(req, env, ctx)).status).toBe(403);
+    expect((await worker.fetch(req, env as unknown as Env)).status).toBe(403);
     expect(compareSpy).toHaveBeenCalledWith("guess", expect.stringMatching(/^[0-9a-f]{64}$/));
   });
 });

@@ -1,4 +1,5 @@
 import type { Env } from "./index";
+import { bufferMessage } from "./chat-buffer";
 import { signedFileUrl } from "./file-url";
 import { BOT_DOWNLOAD_LIMIT, getFile, TOO_BIG_TO_DOWNLOAD } from "./telegram-api";
 import { constantTimeEqual, isAllowed, parseAllowlist } from "./util";
@@ -31,6 +32,7 @@ interface TelegramMessage {
   date: number;
   text?: string;
   caption?: string;
+  media_group_id?: string;
   photo?: TelegramPhotoSize[];
   voice?: TelegramFile;
   audio?: TelegramFile;
@@ -50,14 +52,31 @@ type IncomingMedia = TelegramFile & { type: MediaType };
 export type ForwardedMedia = Omit<IncomingMedia, "file_id"> &
   ({ url: string; expires_at: number } | { error: string });
 
-export interface ForwardPayload {
-  chat_id: number;
+/** One allowlisted message as the chat buffer stores it, before its media is resolved. */
+export interface BufferedMessage {
   message_id: number;
   date: number;
   from: TelegramUser;
   text?: string;
   caption?: string;
-  media?: ForwardedMedia;
+  media_group_id?: string;
+  media?: IncomingMedia;
+}
+
+/** One entry in a forwarded batch. An album becomes one entry holding every item. */
+export interface BatchMessage {
+  message_id: number;
+  date: number;
+  from: TelegramUser;
+  text?: string;
+  caption?: string;
+  media_group_id?: string;
+  media?: ForwardedMedia[];
+}
+
+export interface BatchPayload {
+  chat_id: number;
+  messages: BatchMessage[];
 }
 
 // Telegram sends every photo in several sizes. Only the largest is worth forwarding,
@@ -89,7 +108,7 @@ function extractMedia(message: TelegramMessage): IncomingMedia | undefined {
   return undefined;
 }
 
-async function resolveMedia(env: Env, origin: string, media: IncomingMedia): Promise<ForwardedMedia> {
+export async function resolveMedia(env: Env, origin: string, media: IncomingMedia): Promise<ForwardedMedia> {
   const { file_id, ...info } = media;
   if ((info.file_size ?? 0) > BOT_DOWNLOAD_LIMIT) return { ...info, error: TOO_BIG_TO_DOWNLOAD };
   const file = await getFile(env, file_id);
@@ -99,11 +118,7 @@ async function resolveMedia(env: Env, origin: string, media: IncomingMedia): Pro
 
 const ok = () => new Response("ok", { status: 200 });
 
-export async function handleTelegramWebhook(
-  request: Request,
-  env: Env,
-  ctx: ExecutionContext,
-): Promise<Response> {
+export async function handleTelegramWebhook(request: Request, env: Env): Promise<Response> {
   const provided = request.headers.get("X-Telegram-Bot-Api-Secret-Token") ?? "";
   if (!env.TG_WEBHOOK_SECRET || !(await constantTimeEqual(provided, env.TG_WEBHOOK_SECRET))) {
     console.log("telegram: rejected update, webhook secret header missing or wrong");
@@ -134,24 +149,24 @@ export async function handleTelegramWebhook(
   const media = extractMedia(message);
   if (typeof message.text !== "string" && !media) return ok();
 
-  const base = {
-    chat_id: message.chat.id,
+  const buffered: BufferedMessage = {
     message_id: message.message_id,
     date: message.date,
     from: message.from,
+    text: message.text,
+    caption: media ? message.caption : undefined,
+    media_group_id: media ? message.media_group_id : undefined,
+    media,
   };
 
-  if (!media) {
-    ctx.waitUntil(forwardToGrokBot(env, { ...base, text: message.text }));
-    return ok();
+  // A non-200 makes Telegram redeliver, and the buffer keys messages by id, so a
+  // retry after a failed hand-off cannot duplicate a message.
+  try {
+    await bufferMessage(env, new URL(request.url).origin, message.chat.id, buffered);
+  } catch (err) {
+    console.error(`telegram: could not buffer message: ${err instanceof Error ? err.message : "unknown error"}`);
+    return new Response("Service Unavailable", { status: 503 });
   }
-
-  const origin = new URL(request.url).origin;
-  ctx.waitUntil(
-    resolveMedia(env, origin, media).then((resolved) =>
-      forwardToGrokBot(env, { ...base, caption: message.caption, media: resolved }),
-    ),
-  );
   return ok();
 }
 
@@ -180,7 +195,7 @@ function normalizeAuth(headerName: string, raw: string): string {
   return key ? `Bearer ${key}` : "";
 }
 
-async function forwardToGrokBot(env: Env, payload: ForwardPayload): Promise<void> {
+export async function forwardToGrokBot(env: Env, payload: BatchPayload): Promise<void> {
   if (!env.GROKBOT_WEBHOOK_URL) {
     console.error("forward skipped: GROKBOT_WEBHOOK_URL is not set");
     return;
