@@ -1,8 +1,10 @@
 import type { Env } from "./index";
 import { bearerMatches } from "./auth";
 import { toReactionEmoji } from "./reactions";
+import { resolveAccess, sendRefusal } from "./access";
+import { SETUP_CODE_TTL_MS, storeSetupCode } from "./owner-store";
 import { callTelegram, MB } from "./telegram-api";
-import { ALLOWLIST_CONFIG_ERROR, isAllowed, parseAllowlist } from "./util";
+import { sha256Hex } from "./util";
 
 const SUPPORTED_PROTOCOL_VERSIONS = ["2025-06-18", "2025-03-26", "2024-11-05"];
 const LATEST_PROTOCOL_VERSION = SUPPORTED_PROTOCOL_VERSIONS[0];
@@ -166,6 +168,12 @@ const TOOLS = [
       additionalProperties: false,
     },
   },
+  {
+    name: "create_setup_code",
+    description:
+      "Create a one time setup link that makes whoever opens it in Telegram and taps Start the bot's owner, replacing any current owner. Expires in 10 minutes. Only call it while setting up or re-pairing the bot in the Grok Bot chat, and show the link only there. Never call it from the Telegram routine and never send the link or code over Telegram.",
+    inputSchema: { type: "object", properties: {}, additionalProperties: false },
+  },
 ];
 
 const json = (body: unknown, status = 200) =>
@@ -230,7 +238,7 @@ async function handleMessage(msg: unknown, env: Env): Promise<object | null> {
         capabilities: { tools: { listChanged: false } },
         serverInfo: SERVER_INFO,
         instructions:
-          "Send Telegram messages, photos, voice messages, files and reactions as the bot. Only allowlisted chat ids are accepted.",
+          "Send Telegram messages, photos, voice messages, files and reactions as the bot. Once an owner is bound, only the owner's chat is accepted; before that, only allowlisted chat ids. create_setup_code makes a one time link that binds the owner.",
       });
     }
     case "ping":
@@ -243,6 +251,7 @@ async function handleMessage(msg: unknown, env: Env): Promise<object | null> {
       if (name === "send_telegram_message") return rpcResult(id, await sendMessage(args, env));
       if (name === "send_typing") return rpcResult(id, await sendTyping(args, env));
       if (name === "send_telegram_reaction") return rpcResult(id, await sendReaction(args, env));
+      if (name === "create_setup_code") return rpcResult(id, await createSetupCode(env));
       if (typeof name === "string" && Object.hasOwn(MEDIA_TOOLS, name)) {
         return rpcResult(id, await sendMedia(MEDIA_TOOLS[name], args, env));
       }
@@ -259,19 +268,46 @@ const toolError = (text: string): ToolResult => ({
 });
 const toolOk = (text: string): ToolResult => ({ content: [{ type: "text", text }] });
 
-function checkChat(args: Record<string, unknown>, env: Env): string | null {
-  const chatId = args.chat_id;
-  const allowlist = parseAllowlist(env.ALLOWED_USER_IDS);
-  if (!allowlist) return ALLOWLIST_CONFIG_ERROR;
-  if (typeof chatId !== "number" && typeof chatId !== "string") return "chat_id is required";
-  if (!isAllowed(allowlist, chatId)) {
-    return "chat_id is not in the allowlist";
+async function checkChat(args: Record<string, unknown>, env: Env): Promise<string | null> {
+  try {
+    return sendRefusal(await resolveAccess(env), args.chat_id);
+  } catch (err) {
+    console.error(`mcp: could not load the owner: ${err instanceof Error ? err.message : "unknown error"}`);
+    return "Could not check who owns the bot. Try again later.";
   }
-  return null;
+}
+
+const base64url = (bytes: Uint8Array) =>
+  btoa(String.fromCharCode(...bytes)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+
+async function createSetupCode(env: Env): Promise<ToolResult> {
+  // 32 random bytes are 43 base64url characters, inside Telegram's 64 character start parameter.
+  const code = base64url(crypto.getRandomValues(new Uint8Array(32)));
+  let expiresAt: number;
+  try {
+    expiresAt = await storeSetupCode(env, await sha256Hex(code));
+  } catch (err) {
+    console.error(`mcp: could not store the setup code: ${err instanceof Error ? err.message : "unknown error"}`);
+    return toolError("Could not store the setup code. Try again later.");
+  }
+  const me = await callTelegram(env, "getMe", {});
+  const username = (me.result as { username?: unknown } | undefined)?.username;
+  const link = me.ok && typeof username === "string" ? `https://t.me/${username}?start=${code}` : null;
+  return toolOk(
+    JSON.stringify({
+      code,
+      link,
+      expires_at: new Date(expiresAt).toISOString(),
+      expires_in_seconds: SETUP_CODE_TTL_MS / 1000,
+      note: link
+        ? "Show the link only in this Grok Bot chat. Opening it in Telegram and tapping Start makes that account the bot's owner. It works once and expires in 10 minutes."
+        : `Could not look up the bot's username (${me.description ?? "getMe failed"}). Your human can send /start followed by the code to the bot instead. Show the code only in this Grok Bot chat.`,
+    }),
+  );
 }
 
 async function sendMessage(args: Record<string, unknown>, env: Env): Promise<ToolResult> {
-  const chatError = checkChat(args, env);
+  const chatError = await checkChat(args, env);
   if (chatError) return toolError(chatError);
 
   const { chat_id, text, reply_to_message_id, parse_mode } = args;
@@ -306,7 +342,7 @@ async function sendMessage(args: Record<string, unknown>, env: Env): Promise<Too
 }
 
 async function sendTyping(args: Record<string, unknown>, env: Env): Promise<ToolResult> {
-  const chatError = checkChat(args, env);
+  const chatError = await checkChat(args, env);
   if (chatError) return toolError(chatError);
 
   const result = await callTelegram(env, "sendChatAction", {
@@ -318,7 +354,7 @@ async function sendTyping(args: Record<string, unknown>, env: Env): Promise<Tool
 }
 
 async function sendReaction(args: Record<string, unknown>, env: Env): Promise<ToolResult> {
-  const chatError = checkChat(args, env);
+  const chatError = await checkChat(args, env);
   if (chatError) return toolError(chatError);
 
   const { chat_id, message_id, emoji } = args;
@@ -382,7 +418,7 @@ function decodeUpload(tool: MediaTool, args: Record<string, unknown>): Upload {
 }
 
 async function sendMedia(tool: MediaTool, args: Record<string, unknown>, env: Env): Promise<ToolResult> {
-  const chatError = checkChat(args, env);
+  const chatError = await checkChat(args, env);
   if (chatError) return toolError(chatError);
 
   const { chat_id, url, base64, filename, mime_type, caption } = args;

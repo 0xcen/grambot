@@ -4,7 +4,7 @@
 # secret written to disk is the MCP bearer token, in SECRETS_FILE (mode 600).
 #
 # New worker (run from a clone):
-#   BOT_TOKEN, GROKBOT_WEBHOOK_URL, GROKBOT_WEBHOOK_AUTH, ALLOWED_USER_IDS
+#   BOT_TOKEN, GROKBOT_WEBHOOK_URL, GROKBOT_WEBHOOK_AUTH
 #   Deploys, generates TG_WEBHOOK_SECRET and MCP_BEARER_TOKEN, sets every
 #   secret, registers the Telegram webhook through POST /setup, and writes
 #   MCP_URL and MCP_BEARER_TOKEN to SECRETS_FILE.
@@ -14,7 +14,8 @@
 #   Skips deploy, leaves TG_WEBHOOK_SECRET and MCP_BEARER_TOKEN alone, sets the
 #   three Telegram/routine secrets, then calls POST /setup.
 #
-# Optional: WORKER_NAME (default grambot; in existing worker mode, the first
+# Optional: ALLOWED_USER_IDS (new worker mode only; without it the bot answers
+#   nobody until its owner claims it with a setup code), WORKER_NAME (default grambot; in existing worker mode, the first
 #   label of a workers.dev WORKER_URL), WORKER_URL,
 #   GROKBOT_WEBHOOK_AUTH_HEADER, SECRETS_FILE (default
 #   $HOME/.grambot-mcp in new worker mode, unused otherwise unless set).
@@ -50,20 +51,17 @@ missing=()
 for var in BOT_TOKEN GROKBOT_WEBHOOK_URL GROKBOT_WEBHOOK_AUTH; do
   [ -n "${!var:-}" ] || missing+=("$var")
 done
-if [ "$MODE" = new ]; then
-  [ -n "${ALLOWED_USER_IDS:-}" ] || missing+=("ALLOWED_USER_IDS")
-else
-  [ -n "$WORKER_URL" ] || missing+=("WORKER_URL")
-fi
+[ "$MODE" = new ] || [ -n "$WORKER_URL" ] || missing+=("WORKER_URL")
 [ "${#missing[@]}" -eq 0 ] || die "missing required env vars: ${missing[*]}"
 
 [[ "$BOT_TOKEN" =~ ^[0-9]+:[A-Za-z0-9_-]+$ ]] || die "BOT_TOKEN does not look like a BotFather token"
 [[ "$GROKBOT_WEBHOOK_URL" == https://* ]] || die "GROKBOT_WEBHOOK_URL must start with https://"
 [ -z "$WORKER_URL" ] || [[ "$WORKER_URL" == https://* ]] \
   || die "WORKER_URL must start with https:// so the bearer token is never sent in clear text"
+ALLOWED_USER_IDS="${ALLOWED_USER_IDS:-}"
 if [ "$MODE" = new ]; then
   ALLOWED_USER_IDS="${ALLOWED_USER_IDS// /}"
-  [[ "$ALLOWED_USER_IDS" =~ ^-?[0-9]+(,-?[0-9]+)*$ ]] \
+  [ -z "$ALLOWED_USER_IDS" ] || [[ "$ALLOWED_USER_IDS" =~ ^-?[0-9]+(,-?[0-9]+)*$ ]] \
     || die "ALLOWED_USER_IDS must be numeric Telegram user ids separated by commas"
 else
   [[ "$MCP_BEARER_TOKEN" =~ ^[A-Za-z0-9._~+/=-]+$ ]] \
@@ -123,7 +121,7 @@ WORKER_URL="${WORKER_URL%/}"
 
 echo "Setting secrets on $WORKER_NAME..."
 if [ "$MODE" = new ]; then
-  put_secret ALLOWED_USER_IDS "$ALLOWED_USER_IDS"
+  [ -z "$ALLOWED_USER_IDS" ] || put_secret ALLOWED_USER_IDS "$ALLOWED_USER_IDS"
   put_secret TG_WEBHOOK_SECRET "$TG_WEBHOOK_SECRET"
   put_secret MCP_BEARER_TOKEN "$MCP_BEARER_TOKEN"
 fi

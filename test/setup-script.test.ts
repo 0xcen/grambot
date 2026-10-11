@@ -67,9 +67,19 @@ describe("scripts/setup.sh", () => {
     const r = run({ BOT_TOKEN: SECRETS.BOT_TOKEN });
     expect(r.code).not.toBe(0);
     expect(r.out).toContain(
-      "missing required env vars: GROKBOT_WEBHOOK_URL GROKBOT_WEBHOOK_AUTH ALLOWED_USER_IDS",
+      "missing required env vars: GROKBOT_WEBHOOK_URL GROKBOT_WEBHOOK_AUTH",
     );
+    expect(r.out).not.toContain("ALLOWED_USER_IDS");
     expect(r.calls).toBe("");
+  });
+
+  it("new worker without ALLOWED_USER_IDS: deploys, skips that secret, and registers the webhook for a setup code claim", () => {
+    const r = run({ ...SECRETS });
+    expect(r.code).toBe(0);
+    expect(r.calls).toContain("DEPLOY deploy --name grambot");
+    expect(r.calls).not.toContain("PUT ALLOWED_USER_IDS");
+    expect(r.calls).toMatch(/PUT MCP_BEARER_TOKEN --name grambot value=\S+/);
+    expect(r.calls).toMatch(/CURL .*-X POST .*\/setup/);
   });
 
   it("rejects an invalid allowlist", () => {

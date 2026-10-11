@@ -1,12 +1,14 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import worker, { type Env } from "../src/index";
 import { fakeChatBuffers } from "./fake-chat-buffer";
+import { fakeOwnerStore } from "./fake-owner-store";
 
 const BASE = "https://worker.example";
 const NOW = Date.UTC(2026, 9, 11, 12, 0, 0);
 const buffers = fakeChatBuffers();
+const ownerStore = fakeOwnerStore();
 
-const env: Omit<Env, "CHAT_BUFFER"> = {
+const env: Omit<Env, "CHAT_BUFFER" | "OWNER_STORE"> = {
   BOT_TOKEN: "123:test-bot-token",
   TG_WEBHOOK_SECRET: "tg-secret",
   MCP_BEARER_TOKEN: "mcp-token",
@@ -20,6 +22,7 @@ let fetchMock: ReturnType<typeof vi.fn>;
 function send(fromId: number, messageId: number, fields: Record<string, unknown>, overrides: Partial<Env> = {}, secret = "tg-secret") {
   const e = { ...env, ...overrides } as Env;
   e.CHAT_BUFFER = buffers.namespace(e);
+  e.OWNER_STORE = ownerStore.namespace;
   const body = {
     update_id: messageId,
     message: { message_id: messageId, date: 1_700_000_000 + messageId, from: { id: fromId, first_name: "Ada" }, chat: { id: fromId }, ...fields },
@@ -68,6 +71,7 @@ beforeEach(() => {
 
 afterEach(() => {
   buffers.reset();
+  ownerStore.reset();
   vi.useRealTimers();
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
@@ -189,7 +193,7 @@ describe("inbound debounce", () => {
   });
 
   it("returns 503 so Telegram retries when the buffer is unavailable", async () => {
-    const e = { ...env, CHAT_BUFFER: { idFromName: () => ({}), get: () => ({ fetch: async () => new Response("", { status: 500 }) }) } } as unknown as Env;
+    const e = { ...env, OWNER_STORE: ownerStore.namespace, CHAT_BUFFER: { idFromName: () => ({}), get: () => ({ fetch: async () => new Response("", { status: 500 }) }) } } as unknown as Env;
     const res = await worker.fetch(
       new Request(`${BASE}/telegram`, {
         method: "POST",

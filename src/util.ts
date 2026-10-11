@@ -22,8 +22,16 @@ export async function constantTimeEqual(a: string, b: string): Promise<boolean> 
   return diff === 0;
 }
 
-export const ALLOWLIST_CONFIG_ERROR =
-  "Server misconfigured: ALLOWED_USER_IDS is empty or invalid. Set it to a comma separated list of numeric Telegram user ids.";
+export async function sha256Hex(value: string): Promise<string> {
+  const digest = await crypto.subtle.digest("SHA-256", encoder.encode(value));
+  return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+/** A positive integer from a [vars] string, or the fallback when it is missing or malformed. */
+export function envInt(raw: string | undefined, fallback: number): number {
+  const value = raw?.trim() ?? "";
+  return /^\d+$/.test(value) && Number(value) > 0 ? Number(value) : fallback;
+}
 
 /** Returns null when the allowlist is missing, empty, or has any non-numeric entry. */
 export function parseAllowlist(raw: string | undefined): Set<string> | null {
@@ -33,7 +41,7 @@ export function parseAllowlist(raw: string | undefined): Set<string> | null {
   return new Set(ids);
 }
 
-export function isAllowed(allowlist: Set<string>, id: unknown): boolean {
+export function isListed(allowlist: Set<string>, id: unknown): boolean {
   if (typeof id !== "number" && typeof id !== "string") return false;
   return allowlist.has(String(id).trim());
 }

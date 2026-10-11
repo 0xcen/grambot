@@ -1,6 +1,5 @@
 import type { Env } from "./index";
 import { bearerMatches } from "./auth";
-import { parseAllowlist } from "./util";
 
 const json = (body: { ok: boolean; description: string }, status: number) =>
   new Response(JSON.stringify(body), {
@@ -23,7 +22,6 @@ export async function handleSetup(request: Request, env: Env): Promise<Response>
   const missing = [
     !env.BOT_TOKEN && "BOT_TOKEN",
     !env.TG_WEBHOOK_SECRET && "TG_WEBHOOK_SECRET",
-    !parseAllowlist(env.ALLOWED_USER_IDS) && "ALLOWED_USER_IDS",
   ].filter(Boolean);
   if (missing.length) {
     return json({ ok: false, description: `Missing or invalid secrets: ${missing.join(", ")}` }, 503);

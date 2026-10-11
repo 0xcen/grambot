@@ -1,11 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import worker, { type Env } from "../src/index";
 import { fakeChatBuffers } from "./fake-chat-buffer";
+import { fakeOwnerStore } from "./fake-owner-store";
 
 const BASE = "https://worker.example";
 const buffers = fakeChatBuffers();
+const ownerStore = fakeOwnerStore();
 
-const env: Omit<Env, "CHAT_BUFFER"> = {
+const env: Omit<Env, "CHAT_BUFFER" | "OWNER_STORE"> = {
   BOT_TOKEN: "123:test-bot-token",
   TG_WEBHOOK_SECRET: "tg-secret",
   MCP_BEARER_TOKEN: "mcp-token",
@@ -21,6 +23,7 @@ const emoji = (e: string) => ({ type: "emoji", emoji: e });
 function withEnv(overrides: Partial<Env> = {}): Env {
   const e = { ...env, ...overrides } as Env;
   e.CHAT_BUFFER = buffers.namespace(e);
+  e.OWNER_STORE = ownerStore.namespace;
   return e;
 }
 
@@ -75,6 +78,7 @@ beforeEach(() => {
 
 afterEach(() => {
   buffers.reset();
+  ownerStore.reset();
   vi.useRealTimers();
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
@@ -254,7 +258,7 @@ describe("send_telegram_reaction", () => {
 
   it("refuses with a config error when the allowlist is empty", async () => {
     const result = (await tool({ chat_id: 111, message_id: 42, emoji: "👍" }, { ALLOWED_USER_IDS: "" })) as any;
-    expect(result.content[0].text).toContain("Server misconfigured: ALLOWED_USER_IDS");
+    expect(result.content[0].text).toContain("Server misconfigured: no owner is bound and ALLOWED_USER_IDS is empty or invalid");
     expect(fetchMock).not.toHaveBeenCalled();
   });
 

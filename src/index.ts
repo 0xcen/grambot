@@ -12,10 +12,15 @@ export interface Env {
   GROKBOT_WEBHOOK_AUTH: string;
   GROKBOT_WEBHOOK_AUTH_HEADER?: string;
   DEBOUNCE_MS?: string;
+  RATE_LIMIT_PER_MINUTE?: string;
+  RATE_LIMIT_PER_DAY?: string;
+  MAX_MESSAGE_CHARS?: string;
   CHAT_BUFFER: DurableObjectNamespace;
+  OWNER_STORE: DurableObjectNamespace;
 }
 
 export { ChatBuffer } from "./chat-buffer";
+export { OwnerStore } from "./owner-store";
 
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
