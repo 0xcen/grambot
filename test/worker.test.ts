@@ -264,6 +264,7 @@ describe("/mcp", () => {
       "send_telegram_photo",
       "send_telegram_voice",
       "send_telegram_document",
+      "send_telegram_reaction",
     ]);
   });
 
@@ -459,7 +460,7 @@ describe("POST /setup", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  it("calls setWebhook with this Worker's /telegram URL, the secret and message updates only", async () => {
+  it("calls setWebhook with this Worker's /telegram URL, the secret, and message and reaction updates only", async () => {
     fetchMock.mockResolvedValueOnce(
       new Response(JSON.stringify({ ok: true, result: true, description: "Webhook was set" })),
     );
@@ -473,7 +474,7 @@ describe("POST /setup", () => {
     expect(JSON.parse(init.body)).toEqual({
       url: "https://grambot.someone.workers.dev/telegram",
       secret_token: "tg-secret",
-      allowed_updates: ["message"],
+      allowed_updates: ["message", "message_reaction"],
     });
   });
 
