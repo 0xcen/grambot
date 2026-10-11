@@ -271,6 +271,36 @@ describe("A2 no owner bound: ALLOWED_USER_IDS works exactly as before", () => {
     expect((await tool("send_typing", { chat_id: 999 })).content[0].text).toBe("chat_id is not in the allowlist");
   });
 
+  it("lets every send tool and send_telegram_reaction reach an ALLOWED_USER_IDS chat before an owner is bound, and refuses non-owner chats after", async () => {
+    const calls: [string, Record<string, unknown>, string][] = [
+      ["send_telegram_message", { text: "hi" }, "sendMessage"],
+      ["send_typing", {}, "sendChatAction"],
+      ["send_telegram_reaction", { message_id: 1, emoji: "👍" }, "setMessageReaction"],
+      ["send_telegram_photo", { url: "https://example.com/a.jpg" }, "sendPhoto"],
+      ["send_telegram_voice", { url: "https://example.com/a.ogg" }, "sendVoice"],
+      ["send_telegram_document", { url: "https://example.com/a.pdf" }, "sendDocument"],
+    ];
+    for (const chatId of [111, "222"]) {
+      for (const [name, args, method] of calls) {
+        fetchMock.mockClear();
+        const result = await tool(name, { chat_id: chatId, ...args });
+        expect(result.isError, `${name} to ${chatId}`).toBeUndefined();
+        expect(fetchMock).toHaveBeenCalledTimes(1);
+        expect(telegramCalls(method).map((body) => body.chat_id)).toEqual([chatId]);
+      }
+    }
+    expect(await storedOwner()).toBeUndefined();
+
+    await claim(OWNER);
+    for (const chatId of [111, "222"]) {
+      for (const [name, args] of calls) {
+        const refused = await tool(name, { chat_id: chatId, ...args });
+        expect(refused.content[0].text, `${name} to ${chatId}`).toBe("chat_id is not the owner's chat");
+      }
+    }
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it("with no owner and no ALLOWED_USER_IDS, drops messages but still processes a /start claim", async () => {
     overrides = { ALLOWED_USER_IDS: "" };
     await message(111, "anyone?");
