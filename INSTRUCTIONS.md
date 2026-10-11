@@ -1,1 +1,3 @@
 The setup instructions for your Grok Bot now live in the [README](README.md#setup-instructions-for-the-grok-bot).
+
+The routine prompt template is in [step 1](README.md#1-create-the-routine). It describes the batch payload, a `messages` list holding text, photos, voice messages, audio, documents and albums, and the media the bot may send back. [Message batching](README.md#message-batching) explains the per-chat wait and how to change `DEBOUNCE_MS`. [Photos, voice messages and files](README.md#photos-voice-messages-and-files) covers the media fields and send tools. Neither feature needs a new secret, so `scripts/setup.sh` is unchanged. A deploy from the repo creates the Durable Object.

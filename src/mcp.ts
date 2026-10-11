@@ -1,12 +1,90 @@
 import type { Env } from "./index";
 import { bearerMatches } from "./auth";
+import { callTelegram, MB } from "./telegram-api";
 import { ALLOWLIST_CONFIG_ERROR, isAllowed, parseAllowlist } from "./util";
 
 const SUPPORTED_PROTOCOL_VERSIONS = ["2025-06-18", "2025-03-26", "2024-11-05"];
 const LATEST_PROTOCOL_VERSION = SUPPORTED_PROTOCOL_VERSIONS[0];
 const SERVER_INFO = { name: "grambot", version: "0.1.0" };
 const TELEGRAM_MAX_TEXT = 4096;
+const TELEGRAM_MAX_CAPTION = 1024;
 const PARSE_MODES = ["MarkdownV2", "HTML", "Markdown"] as const;
+
+interface MediaTool {
+  method: string;
+  field: string;
+  noun: string;
+  maxBytes: number;
+  urlNote: string;
+  defaultMime: string;
+  defaultFilename?: string;
+}
+
+// Upload caps follow Telegram's limits (10 MB for photos) and keep a decoded
+// file well inside a Worker's 128 MB of memory for everything else.
+const MEDIA_TOOLS: Record<string, MediaTool> = {
+  send_telegram_photo: {
+    method: "sendPhoto",
+    field: "photo",
+    noun: "photo",
+    maxBytes: 10 * MB,
+    urlNote: "Telegram fetches it itself, up to 5 MB.",
+    defaultMime: "image/jpeg",
+    defaultFilename: "photo.jpg",
+  },
+  send_telegram_voice: {
+    method: "sendVoice",
+    field: "voice",
+    noun: "voice message",
+    maxBytes: 20 * MB,
+    urlNote: "Telegram fetches it itself, up to 20 MB. Use OGG/Opus, MP3 or M4A.",
+    defaultMime: "audio/ogg",
+    defaultFilename: "voice.ogg",
+  },
+  send_telegram_document: {
+    method: "sendDocument",
+    field: "document",
+    noun: "file",
+    maxBytes: 20 * MB,
+    urlNote: "Telegram fetches it itself, up to 20 MB.",
+    defaultMime: "application/octet-stream",
+  },
+};
+
+function mediaToolSchema(name: string, tool: MediaTool) {
+  const capMb = tool.maxBytes / MB;
+  return {
+    name,
+    description: `Send a ${tool.noun} from the bot to an allowlisted chat. Pass exactly one of url or base64.`,
+    inputSchema: {
+      type: "object",
+      properties: {
+        chat_id: {
+          type: ["integer", "string"],
+          description: "Target chat id. Must be in the allowlist.",
+        },
+        url: { type: "string", description: `Public http(s) URL of the ${tool.noun}. ${tool.urlNote}` },
+        base64: {
+          type: "string",
+          description: `The ${tool.noun} bytes as base64, up to ${capMb} MB decoded. A data: URL prefix is accepted.`,
+        },
+        filename: {
+          type: "string",
+          description: tool.defaultFilename
+            ? `File name for base64 uploads. Defaults to ${tool.defaultFilename}.`
+            : "File name for base64 uploads. Required with base64.",
+        },
+        mime_type: {
+          type: "string",
+          description: `MIME type for base64 uploads. Defaults to the data: URL type, then ${tool.defaultMime}.`,
+        },
+        caption: { type: "string", description: `Optional caption, up to ${TELEGRAM_MAX_CAPTION} characters.` },
+      },
+      required: ["chat_id"],
+      additionalProperties: false,
+    },
+  };
+}
 
 type JsonRpcId = string | number | null;
 
@@ -65,6 +143,7 @@ const TOOLS = [
       additionalProperties: false,
     },
   },
+  ...Object.entries(MEDIA_TOOLS).map(([name, tool]) => mediaToolSchema(name, tool)),
 ];
 
 const json = (body: unknown, status = 200) =>
@@ -129,7 +208,7 @@ async function handleMessage(msg: unknown, env: Env): Promise<object | null> {
         capabilities: { tools: { listChanged: false } },
         serverInfo: SERVER_INFO,
         instructions:
-          "Send Telegram messages as the bot. Only allowlisted chat ids are accepted.",
+          "Send Telegram messages, photos, voice messages and files as the bot. Only allowlisted chat ids are accepted.",
       });
     }
     case "ping":
@@ -141,6 +220,9 @@ async function handleMessage(msg: unknown, env: Env): Promise<object | null> {
       const args = (params?.arguments ?? {}) as Record<string, unknown>;
       if (name === "send_telegram_message") return rpcResult(id, await sendMessage(args, env));
       if (name === "send_typing") return rpcResult(id, await sendTyping(args, env));
+      if (typeof name === "string" && Object.hasOwn(MEDIA_TOOLS, name)) {
+        return rpcResult(id, await sendMedia(MEDIA_TOOLS[name], args, env));
+      }
       return rpcError(id, -32602, `Unknown tool: ${String(name)}`);
     }
     default:
@@ -212,35 +294,81 @@ async function sendTyping(args: Record<string, unknown>, env: Env): Promise<Tool
   return toolOk(JSON.stringify({ ok: true }));
 }
 
-interface TelegramApiResult {
-  ok: boolean;
-  description?: string;
-  result?: unknown;
+const DATA_URL = /^data:([\w.+-]+\/[\w.+-]+)?(?:;[^,;]*)*;base64,/i;
+
+type Upload = { blob: Blob; filename: string } | { error: string };
+
+function decodeUpload(tool: MediaTool, args: Record<string, unknown>): Upload {
+  const { base64, filename, mime_type } = args;
+  if (typeof base64 !== "string") return { error: "base64 must be a string" };
+  if (filename !== undefined && (typeof filename !== "string" || filename.trim() === "")) {
+    return { error: "filename must be a non-empty string" };
+  }
+  if (mime_type !== undefined && (typeof mime_type !== "string" || !mime_type.includes("/"))) {
+    return { error: "mime_type must look like type/subtype, for example image/png" };
+  }
+
+  const dataUrlMime = DATA_URL.exec(base64)?.[1];
+  const data = base64.replace(DATA_URL, "").replace(/\s+/g, "");
+  if (data === "" || !/^[A-Za-z0-9+/]+={0,2}$/.test(data)) return { error: "base64 is empty or not valid base64" };
+
+  const bytes = Math.floor((data.length * 3) / 4) - (data.match(/=+$/)?.[0].length ?? 0);
+  if (bytes > tool.maxBytes) {
+    const mb = (bytes / MB).toFixed(1);
+    return { error: `The ${tool.noun} is ${mb} MB. base64 uploads are capped at ${tool.maxBytes / MB} MB.` };
+  }
+
+  const name = (filename as string | undefined) ?? tool.defaultFilename;
+  if (!name) return { error: `filename is required when sending a ${tool.noun} as base64` };
+
+  let binary: string;
+  try {
+    binary = atob(data);
+  } catch {
+    return { error: "base64 is empty or not valid base64" };
+  }
+  const buffer = Uint8Array.from(binary, (c) => c.charCodeAt(0));
+  const type = (mime_type as string | undefined) ?? dataUrlMime ?? tool.defaultMime;
+  return { blob: new Blob([buffer], { type }), filename: name };
 }
 
-async function callTelegram(
-  env: Env,
-  method: string,
-  payload: Record<string, unknown>,
-): Promise<TelegramApiResult> {
-  if (!env.BOT_TOKEN) return { ok: false, description: "BOT_TOKEN is not configured" };
-  try {
-    const res = await fetch(`https://api.telegram.org/bot${env.BOT_TOKEN}/${method}`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-    });
-    const data = (await res.json().catch(() => null)) as TelegramApiResult | null;
-    if (!data) {
-      console.error(`telegram ${method} failed: HTTP ${res.status} with non-JSON body`);
-      return { ok: false, description: `HTTP ${res.status}` };
-    }
-    if (!data.ok) console.error(`telegram ${method} failed: HTTP ${res.status} ${data.description ?? ""}`);
-    return data;
-  } catch (err) {
-    console.error(`telegram ${method} failed: ${err instanceof Error ? err.name : "unknown error"}`);
-    return { ok: false, description: "network error" };
+async function sendMedia(tool: MediaTool, args: Record<string, unknown>, env: Env): Promise<ToolResult> {
+  const chatError = checkChat(args, env);
+  if (chatError) return toolError(chatError);
+
+  const { chat_id, url, base64, filename, mime_type, caption } = args;
+  if ((url === undefined) === (base64 === undefined)) return toolError("Pass exactly one of url or base64");
+  if (caption !== undefined && typeof caption !== "string") return toolError("caption must be a string");
+  if (typeof caption === "string" && caption.length > TELEGRAM_MAX_CAPTION) {
+    return toolError(`caption is ${caption.length} characters. Telegram allows at most ${TELEGRAM_MAX_CAPTION}.`);
   }
+
+  let result;
+  if (url !== undefined) {
+    if (filename !== undefined || mime_type !== undefined) {
+      return toolError("filename and mime_type only apply to base64 uploads");
+    }
+    if (typeof url !== "string" || !URL.canParse(url) || !/^https?:$/.test(new URL(url).protocol)) {
+      return toolError("url must be an http or https URL");
+    }
+    result = await callTelegram(env, tool.method, {
+      chat_id,
+      [tool.field]: url,
+      ...(caption ? { caption } : {}),
+    });
+  } else {
+    const upload = decodeUpload(tool, args);
+    if ("error" in upload) return toolError(upload.error);
+    const form = new FormData();
+    form.set("chat_id", String(chat_id));
+    if (caption) form.set("caption", caption);
+    form.set(tool.field, upload.blob, upload.filename);
+    result = await callTelegram(env, tool.method, form);
+  }
+
+  if (!result.ok) return toolError(`Telegram ${tool.method} failed: ${result.description}`);
+  const messageId = (result.result as { message_id?: number } | undefined)?.message_id;
+  return toolOk(JSON.stringify({ ok: true, message_id: messageId }));
 }
 
 export function splitText(text: string, max: number): string[] {

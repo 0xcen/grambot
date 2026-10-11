@@ -1,10 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import worker, { type Env } from "../src/index";
 import { splitText } from "../src/mcp";
+import { fakeChatBuffers } from "./fake-chat-buffer";
 
 const BASE = "https://worker.example";
+const buffers = fakeChatBuffers();
 
-const env: Env = {
+const env: Omit<Env, "CHAT_BUFFER"> = {
   BOT_TOKEN: "123:test-bot-token",
   TG_WEBHOOK_SECRET: "tg-secret",
   MCP_BEARER_TOKEN: "mcp-token",
@@ -14,19 +16,11 @@ const env: Env = {
 };
 
 let fetchMock: ReturnType<typeof vi.fn>;
-let pending: Promise<unknown>[];
-
-function ctx(): ExecutionContext {
-  return {
-    waitUntil: (p: Promise<unknown>) => pending.push(p),
-    passThroughOnException: () => {},
-    props: {},
-  } as unknown as ExecutionContext;
-}
-
 async function call(req: Request, overrides: Partial<Env> = {}): Promise<Response> {
-  const res = await worker.fetch(req, { ...env, ...overrides }, ctx());
-  await Promise.all(pending);
+  const e = { ...env, ...overrides } as Env;
+  e.CHAT_BUFFER = buffers.namespace(e);
+  const res = await worker.fetch(req, e);
+  await buffers.flush();
   return res;
 }
 
@@ -73,13 +67,13 @@ function telegramOk(result: unknown = true) {
 }
 
 beforeEach(() => {
-  pending = [];
   fetchMock = vi.fn(async () => new Response("ok"));
   vi.stubGlobal("fetch", fetchMock);
   vi.spyOn(console, "error").mockImplementation(() => {});
 });
 
 afterEach(() => {
+  buffers.reset();
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
 });
@@ -125,10 +119,14 @@ describe("POST /telegram", () => {
     expect(init.headers.Authorization).toBe("Bearer routine-key-xyz");
     expect(JSON.parse(init.body)).toEqual({
       chat_id: 222,
-      message_id: 42,
-      text: "what's on my calendar?",
-      date: 1_700_000_000,
-      from: { id: 222, is_bot: false, first_name: "Ada", username: "ada" },
+      messages: [
+        {
+          message_id: 42,
+          text: "what's on my calendar?",
+          date: 1_700_000_000,
+          from: { id: 222, is_bot: false, first_name: "Ada", username: "ada" },
+        },
+      ],
     });
   });
 
@@ -256,11 +254,17 @@ describe("/mcp", () => {
     expect(await res.text()).toBe("");
   });
 
-  it("lists both tools", async () => {
+  it("lists every tool", async () => {
     const res = await call(mcpRequest(rpc("tools/list")));
     const body = await res.json<any>();
     const names = body.result.tools.map((t: { name: string }) => t.name);
-    expect(names).toEqual(["send_telegram_message", "send_typing"]);
+    expect(names).toEqual([
+      "send_telegram_message",
+      "send_typing",
+      "send_telegram_photo",
+      "send_telegram_voice",
+      "send_telegram_document",
+    ]);
   });
 
   it("returns method not found for unknown methods", async () => {
