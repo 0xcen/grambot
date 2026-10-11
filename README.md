@@ -9,7 +9,7 @@ Chat with your Grok Bot from Telegram.
 
 Your messages go to a Grok Bot routine, and the bot replies in the same chat through a send-only MCP connector.
 
-To install, give this README to your Grok Bot and say "set this up for me". The bot does the work and asks you for a few values, all from the Grok Bot app on any device.
+To install, give this README to your Grok Bot and say "set this up for me". The bot does the work and asks you for a few values. You need a desktop to copy the routine's Webhook URL and Authorization header from the Grok Bot app.
 
 > [!WARNING]
 > Telegram bot chats are not end-to-end encrypted. Never send passwords, codes, keys or other sensitive data to the bot.
@@ -31,6 +31,7 @@ FYI: this Worker does not add Approve or Deny buttons, or deep links into Auto-r
 You need:
 
 - A Telegram bot from [@BotFather](https://t.me/BotFather): send `/newbot`, pick a name and username, keep the token.
+- Tip: generate the bot's profile picture with [Grok Bot Studio](https://grokbots.ai/studio), then set it with `/setuserpic` in @BotFather.
 - A Cloudflare account. Either let the bot run `npx wrangler login`, or create an API token with the "Edit Cloudflare Workers" template and note your account id.
 - Your numeric Telegram user id. Message [@userinfobot](https://t.me/userinfobot) to get it.
 - A Grok Bot.
