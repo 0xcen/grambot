@@ -37,7 +37,7 @@ export async function handleSetup(request: Request, env: Env): Promise<Response>
       body: JSON.stringify({
         url: webhookUrl,
         secret_token: env.TG_WEBHOOK_SECRET,
-        allowed_updates: ["message"],
+        allowed_updates: ["message", "message_reaction"],
       }),
     });
     const data = (await res.json().catch(() => null)) as { ok?: unknown; description?: unknown } | null;
