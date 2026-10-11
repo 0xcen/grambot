@@ -7,6 +7,7 @@ import { BOT_DOWNLOAD_LIMIT, callTelegram, getFile, TOO_BIG_TO_DOWNLOAD } from "
 import { constantTimeEqual, envInt, sha256Hex } from "./util";
 
 export const DEFAULT_MAX_MESSAGE_CHARS = 4000;
+export const REPLY_TO_MAX_CHARS = 300;
 export const CLAIM_CONFIRMATION = "Done. This Telegram account now owns the bot.";
 
 interface TelegramUser {
@@ -42,6 +43,7 @@ interface TelegramMessage {
   voice?: TelegramFile;
   audio?: TelegramFile;
   document?: TelegramFile;
+  reply_to_message?: { message_id: number; text?: string; caption?: string };
   from?: TelegramUser;
   chat: { id: number; type?: string };
 }
@@ -81,6 +83,13 @@ export interface BufferedMessage {
   media?: IncomingMedia;
   /** Set when text or caption was cut to MAX_MESSAGE_CHARS. */
   truncated?: boolean;
+  reply_to?: ReplyTo;
+}
+
+/** The message this one replies to: its id, and an excerpt of its text or caption when it has one. */
+export interface ReplyTo {
+  message_id: number;
+  text?: string;
 }
 
 /** One entry in a forwarded batch. An album becomes one entry holding every item. */
@@ -93,6 +102,7 @@ export interface BatchMessage {
   media_group_id?: string;
   media?: ForwardedMedia[];
   truncated?: boolean;
+  reply_to?: ReplyTo;
 }
 
 /** A reaction change on one message. removed is true when the user cleared their reaction, and emoji is then the one they removed. */
@@ -164,7 +174,17 @@ function messageEntry(message: TelegramMessage): BufferedMessage | undefined {
     caption: media ? message.caption : undefined,
     media_group_id: media ? message.media_group_id : undefined,
     media,
+    reply_to: replyTo(message.reply_to_message),
   };
+}
+
+function replyTo(original: TelegramMessage["reply_to_message"]): ReplyTo | undefined {
+  if (typeof original?.message_id !== "number") return undefined;
+  const source = typeof original.text === "string" && original.text ? original.text : original.caption;
+  if (typeof source !== "string" || !source) return { message_id: original.message_id };
+  const chars = [...source];
+  const text = chars.length > REPLY_TO_MAX_CHARS ? `${chars.slice(0, REPLY_TO_MAX_CHARS - 1).join("")}…` : source;
+  return { message_id: original.message_id, text };
 }
 
 const firstEmoji = (reactions: TelegramReactionType[] | undefined) =>
