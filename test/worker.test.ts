@@ -256,11 +256,17 @@ describe("/mcp", () => {
     expect(await res.text()).toBe("");
   });
 
-  it("lists both tools", async () => {
+  it("lists every tool", async () => {
     const res = await call(mcpRequest(rpc("tools/list")));
     const body = await res.json<any>();
     const names = body.result.tools.map((t: { name: string }) => t.name);
-    expect(names).toEqual(["send_telegram_message", "send_typing"]);
+    expect(names).toEqual([
+      "send_telegram_message",
+      "send_typing",
+      "send_telegram_photo",
+      "send_telegram_voice",
+      "send_telegram_document",
+    ]);
   });
 
   it("returns method not found for unknown methods", async () => {
