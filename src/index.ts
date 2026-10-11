@@ -1,3 +1,4 @@
+import { handleFile } from "./file-url";
 import { handleMcp } from "./mcp";
 import { handleSetup } from "./setup";
 import { handleTelegramWebhook } from "./telegram-webhook";
@@ -29,6 +30,10 @@ export default {
 
     if (pathname === "/setup") {
       return handleSetup(request, env);
+    }
+
+    if (pathname.startsWith("/file/")) {
+      return handleFile(request, env);
     }
 
     return new Response("Not Found", { status: 404 });

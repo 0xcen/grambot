@@ -62,6 +62,12 @@ describe("secret comparisons go through constantTimeEqual", () => {
     expect((await worker.fetch(req, env, ctx)).status).toBe(401);
     expect(compareSpy).toHaveBeenCalledWith("guess", "mcp-token");
   });
+
+  it("checks /file link signatures with constantTimeEqual", async () => {
+    const req = new Request("https://w.example/file/abc?exp=9999999999&sig=guess");
+    expect((await worker.fetch(req, env, ctx)).status).toBe(403);
+    expect(compareSpy).toHaveBeenCalledWith("guess", expect.stringMatching(/^[0-9a-f]{64}$/));
+  });
 });
 
 describe("constantTimeEqual", () => {
