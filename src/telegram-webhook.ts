@@ -41,9 +41,22 @@ interface TelegramMessage {
   chat: { id: number };
 }
 
+type TelegramReactionType = { type: "emoji"; emoji: string } | { type: "custom_emoji" | "paid" };
+
+interface TelegramMessageReaction {
+  chat: { id: number };
+  message_id: number;
+  user?: TelegramUser;
+  actor_chat?: { id: number };
+  date: number;
+  old_reaction?: TelegramReactionType[];
+  new_reaction?: TelegramReactionType[];
+}
+
 interface TelegramUpdate {
   update_id: number;
   message?: TelegramMessage;
+  message_reaction?: TelegramMessageReaction;
 }
 
 type MediaType = "photo" | "voice" | "audio" | "document";
@@ -74,9 +87,25 @@ export interface BatchMessage {
   media?: ForwardedMedia[];
 }
 
+/** A reaction change on one message. removed is true when the user cleared their reaction, and emoji is then the one they removed. */
+export interface BufferedReaction {
+  type: "reaction";
+  message_id: number;
+  date: number;
+  from?: TelegramUser;
+  emoji: string;
+  removed: boolean;
+}
+
+export type BufferedEntry = BufferedMessage | BufferedReaction;
+export type BatchEntry = BatchMessage | BufferedReaction;
+
+export const isReaction = (entry: object): entry is BufferedReaction =>
+  (entry as { type?: unknown }).type === "reaction";
+
 export interface BatchPayload {
   chat_id: number;
-  messages: BatchMessage[];
+  messages: BatchEntry[];
 }
 
 // Telegram sends every photo in several sizes. Only the largest is worth forwarding,
@@ -116,6 +145,55 @@ export async function resolveMedia(env: Env, origin: string, media: IncomingMedi
   return { ...info, file_size: info.file_size ?? file.file_size, ...(await signedFileUrl(env, origin, file_id)) };
 }
 
+function messageEntry(message: TelegramMessage): BufferedMessage | undefined {
+  const media = extractMedia(message);
+  if (!message.from || (typeof message.text !== "string" && !media)) return undefined;
+  return {
+    message_id: message.message_id,
+    date: message.date,
+    from: message.from,
+    text: message.text,
+    caption: media ? message.caption : undefined,
+    media_group_id: media ? message.media_group_id : undefined,
+    media,
+  };
+}
+
+const firstEmoji = (reactions: TelegramReactionType[] | undefined) =>
+  reactions?.find((r): r is { type: "emoji"; emoji: string } => r.type === "emoji" && typeof r.emoji === "string")
+    ?.emoji;
+
+// Custom and paid reactions carry no standard emoji, so they are not forwarded.
+function reactionEntry(reaction: TelegramMessageReaction): BufferedReaction | undefined {
+  const removed = !reaction.new_reaction?.length;
+  const emoji = firstEmoji(removed ? reaction.old_reaction : reaction.new_reaction);
+  if (!emoji) return undefined;
+  return {
+    type: "reaction",
+    message_id: reaction.message_id,
+    date: reaction.date,
+    from: reaction.user,
+    emoji,
+    removed,
+  };
+}
+
+interface Inbound {
+  /** The user (or anonymous actor chat) the allowlist is checked against. */
+  actor: number | undefined;
+  chat_id: number;
+  entry: BufferedEntry | undefined;
+}
+
+function parseUpdate(update: TelegramUpdate): Inbound | undefined {
+  const { message, message_reaction: reaction } = update;
+  if (message?.chat) return { actor: message.from?.id, chat_id: message.chat.id, entry: messageEntry(message) };
+  if (reaction?.chat) {
+    return { actor: reaction.user?.id ?? reaction.actor_chat?.id, chat_id: reaction.chat.id, entry: reactionEntry(reaction) };
+  }
+  return undefined;
+}
+
 const ok = () => new Response("ok", { status: 200 });
 
 export async function handleTelegramWebhook(request: Request, env: Env): Promise<Response> {
@@ -139,30 +217,18 @@ export async function handleTelegramWebhook(request: Request, env: Env): Promise
     return ok();
   }
 
-  const message = update.message;
-  if (!message?.from) return ok();
-  if (!isAllowed(allowlist, message.from.id)) {
+  const inbound = parseUpdate(update);
+  if (!inbound) return ok();
+  if (!isAllowed(allowlist, inbound.actor)) {
     console.log("telegram: sender is not allowlisted, dropping");
     return ok();
   }
+  if (!inbound.entry) return ok();
 
-  const media = extractMedia(message);
-  if (typeof message.text !== "string" && !media) return ok();
-
-  const buffered: BufferedMessage = {
-    message_id: message.message_id,
-    date: message.date,
-    from: message.from,
-    text: message.text,
-    caption: media ? message.caption : undefined,
-    media_group_id: media ? message.media_group_id : undefined,
-    media,
-  };
-
-  // A non-200 makes Telegram redeliver, and the buffer keys messages by id, so a
-  // retry after a failed hand-off cannot duplicate a message.
+  // A non-200 makes Telegram redeliver, and the buffer keys entries by message id, so a
+  // retry after a failed hand-off cannot duplicate one.
   try {
-    await bufferMessage(env, new URL(request.url).origin, message.chat.id, buffered);
+    await bufferMessage(env, new URL(request.url).origin, inbound.chat_id, inbound.entry);
   } catch (err) {
     console.error(`telegram: could not buffer message: ${err instanceof Error ? err.message : "unknown error"}`);
     return new Response("Service Unavailable", { status: 503 });

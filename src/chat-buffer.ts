@@ -1,6 +1,15 @@
 import type { Env } from "./index";
 import type { ForwardedMedia } from "./telegram-webhook";
-import { type BatchMessage, type BufferedMessage, forwardToGrokBot, resolveMedia } from "./telegram-webhook";
+import {
+  type BatchEntry,
+  type BatchMessage,
+  type BufferedEntry,
+  type BufferedMessage,
+  type BufferedReaction,
+  forwardToGrokBot,
+  isReaction,
+  resolveMedia,
+} from "./telegram-webhook";
 
 export const DEFAULT_DEBOUNCE_MS = 2000;
 const MAX_DEBOUNCE_MS = 60_000;
@@ -11,7 +20,10 @@ const PREFIX = "msg:";
 
 // Zero-padded ids make storage order match message order, so album parts that
 // arrive out of order sort themselves, and a redelivered update overwrites itself.
-const keyFor = (messageId: number) => `${PREFIX}${String(messageId).padStart(16, "0")}`;
+// A reaction sorts right after the message it is on, and later changes to it
+// overwrite earlier ones, so a batch carries only its latest state.
+const keyFor = (entry: BufferedEntry) =>
+  `${PREFIX}${String(entry.message_id).padStart(16, "0")}${isReaction(entry) ? ":reaction" : ""}`;
 
 export function debounceMs(env: Env): number {
   const raw = env.DEBOUNCE_MS?.trim() ?? "";
@@ -22,10 +34,10 @@ export function debounceMs(env: Env): number {
 interface AddRequest {
   origin: string;
   chat_id: number;
-  message: BufferedMessage;
+  message: BufferedEntry;
 }
 
-export async function bufferMessage(env: Env, origin: string, chatId: number, message: BufferedMessage): Promise<void> {
+export async function bufferMessage(env: Env, origin: string, chatId: number, message: BufferedEntry): Promise<void> {
   const stub = env.CHAT_BUFFER.get(env.CHAT_BUFFER.idFromName(String(chatId)));
   const body: AddRequest = { origin, chat_id: chatId, message };
   const res = await stub.fetch("https://chat-buffer/add", { method: "POST", body: JSON.stringify(body) });
@@ -33,11 +45,17 @@ export async function bufferMessage(env: Env, origin: string, chatId: number, me
 }
 
 type ResolvedMessage = Omit<BufferedMessage, "media"> & { media?: ForwardedMedia };
+type ResolvedEntry = ResolvedMessage | BufferedReaction;
 
-export function groupBatch(messages: ResolvedMessage[]): BatchMessage[] {
-  const batch: BatchMessage[] = [];
+export function groupBatch(entries: ResolvedEntry[]): BatchEntry[] {
+  const batch: BatchEntry[] = [];
   const albums = new Map<string, BatchMessage>();
-  for (const { media, ...message } of messages) {
+  for (const resolved of entries) {
+    if (isReaction(resolved)) {
+      batch.push(resolved);
+      continue;
+    }
+    const { media, ...message } = resolved;
     const album = message.media_group_id ? albums.get(message.media_group_id) : undefined;
     if (album) {
       if (media) album.media = [...(album.media ?? []), media];
@@ -61,7 +79,7 @@ export class ChatBuffer implements DurableObject {
   async fetch(request: Request): Promise<Response> {
     const { origin, chat_id, message } = await request.json<AddRequest>();
     const storage = this.state.storage;
-    await storage.put({ origin, chat_id, [keyFor(message.message_id)]: message });
+    await storage.put({ origin, chat_id, [keyFor(message)]: message });
     const buffered = await storage.list({ prefix: PREFIX, limit: MAX_BATCH });
     await storage.setAlarm(Date.now() + (buffered.size >= MAX_BATCH ? 0 : debounceMs(this.env)));
     return new Response(null, { status: 204 });
@@ -69,7 +87,7 @@ export class ChatBuffer implements DurableObject {
 
   async alarm(): Promise<void> {
     const storage = this.state.storage;
-    const entries = await storage.list<BufferedMessage>({ prefix: PREFIX, limit: MAX_BATCH });
+    const entries = await storage.list<BufferedEntry>({ prefix: PREFIX, limit: MAX_BATCH });
     if (entries.size === 0) return;
     const origin = (await storage.get<string>("origin")) ?? "";
     const chatId = (await storage.get<number>("chat_id")) ?? 0;
@@ -80,9 +98,10 @@ export class ChatBuffer implements DurableObject {
     if ((await storage.list({ prefix: PREFIX, limit: 1 })).size > 0) await storage.setAlarm(Date.now());
 
     const resolved = await Promise.all(
-      [...entries.values()].map(async ({ media, ...message }): Promise<ResolvedMessage> =>
-        media ? { ...message, media: await resolveMedia(this.env, origin, media) } : message,
-      ),
+      [...entries.values()].map(async (entry): Promise<ResolvedEntry> => {
+        if (isReaction(entry) || !entry.media) return entry as ResolvedEntry;
+        return { ...entry, media: await resolveMedia(this.env, origin, entry.media) };
+      }),
     );
     await forwardToGrokBot(this.env, { chat_id: chatId, messages: groupBatch(resolved) });
   }

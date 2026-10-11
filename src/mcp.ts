@@ -1,5 +1,6 @@
 import type { Env } from "./index";
 import { bearerMatches } from "./auth";
+import { toReactionEmoji } from "./reactions";
 import { callTelegram, MB } from "./telegram-api";
 import { ALLOWLIST_CONFIG_ERROR, isAllowed, parseAllowlist } from "./util";
 
@@ -144,6 +145,27 @@ const TOOLS = [
     },
   },
   ...Object.entries(MEDIA_TOOLS).map(([name, tool]) => mediaToolSchema(name, tool)),
+  {
+    name: "send_telegram_reaction",
+    description:
+      "Set the bot's reaction on a message in an allowlisted chat, or clear it. Use it instead of a reply for a plain acknowledgement.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        chat_id: {
+          type: ["integer", "string"],
+          description: "Target chat id. Must be in the allowlist.",
+        },
+        message_id: { type: "integer", description: "Id of the message to react to." },
+        emoji: {
+          type: "string",
+          description: "One of Telegram's standard reaction emoji, for example 👍 ❤ 🔥 🎉 👀 🙏. Omit or pass an empty string to clear the bot's reaction.",
+        },
+      },
+      required: ["chat_id", "message_id"],
+      additionalProperties: false,
+    },
+  },
 ];
 
 const json = (body: unknown, status = 200) =>
@@ -208,7 +230,7 @@ async function handleMessage(msg: unknown, env: Env): Promise<object | null> {
         capabilities: { tools: { listChanged: false } },
         serverInfo: SERVER_INFO,
         instructions:
-          "Send Telegram messages, photos, voice messages and files as the bot. Only allowlisted chat ids are accepted.",
+          "Send Telegram messages, photos, voice messages, files and reactions as the bot. Only allowlisted chat ids are accepted.",
       });
     }
     case "ping":
@@ -220,6 +242,7 @@ async function handleMessage(msg: unknown, env: Env): Promise<object | null> {
       const args = (params?.arguments ?? {}) as Record<string, unknown>;
       if (name === "send_telegram_message") return rpcResult(id, await sendMessage(args, env));
       if (name === "send_typing") return rpcResult(id, await sendTyping(args, env));
+      if (name === "send_telegram_reaction") return rpcResult(id, await sendReaction(args, env));
       if (typeof name === "string" && Object.hasOwn(MEDIA_TOOLS, name)) {
         return rpcResult(id, await sendMedia(MEDIA_TOOLS[name], args, env));
       }
@@ -292,6 +315,32 @@ async function sendTyping(args: Record<string, unknown>, env: Env): Promise<Tool
   });
   if (!result.ok) return toolError(`Telegram sendChatAction failed: ${result.description}`);
   return toolOk(JSON.stringify({ ok: true }));
+}
+
+async function sendReaction(args: Record<string, unknown>, env: Env): Promise<ToolResult> {
+  const chatError = checkChat(args, env);
+  if (chatError) return toolError(chatError);
+
+  const { chat_id, message_id, emoji } = args;
+  if (typeof message_id !== "number" || !Number.isInteger(message_id) || message_id <= 0) {
+    return toolError("message_id must be a positive integer");
+  }
+  if (emoji !== undefined && typeof emoji !== "string") return toolError("emoji must be a string");
+
+  let reaction: { type: "emoji"; emoji: string }[] = [];
+  if (emoji?.trim()) {
+    const allowed = toReactionEmoji(emoji);
+    if (!allowed) {
+      return toolError(
+        `emoji must be exactly one of Telegram's standard reaction emoji, for example 👍 ❤ 🔥 🎉 👀 🙏. Got ${JSON.stringify(emoji)}.`,
+      );
+    }
+    reaction = [{ type: "emoji", emoji: allowed }];
+  }
+
+  const result = await callTelegram(env, "setMessageReaction", { chat_id, message_id, reaction });
+  if (!result.ok) return toolError(`Telegram setMessageReaction failed: ${result.description}`);
+  return toolOk(JSON.stringify({ ok: true, cleared: reaction.length === 0 }));
 }
 
 const DATA_URL = /^data:([\w.+-]+\/[\w.+-]+)?(?:;[^,;]*)*;base64,/i;
