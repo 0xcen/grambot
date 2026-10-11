@@ -218,7 +218,7 @@ describe("POST /telegram with media", () => {
 
   it("forwards a lookup error when getFile fails", async () => {
     await call(webhook(update(111, { voice: { file_id: "missing", duration: 1 } })));
-    expect(forwarded().media).toEqual({ type: "voice", error: "Telegram could not find this file." });
+    expect(forwarded().media).toEqual({ type: "voice", error: "Telegram getFile failed: Bad Request: invalid file_id" });
   });
 
   it("still ignores updates that have neither text nor supported media", async () => {

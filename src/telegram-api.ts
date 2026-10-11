@@ -47,8 +47,9 @@ export async function getFile(env: Env, fileId: string): Promise<GetFileResult> 
   const res = await callTelegram(env, "getFile", { file_id: fileId });
   const file = res.result as { file_path?: unknown; file_size?: unknown } | undefined;
   if (!res.ok) {
-    const tooBig = /too big/i.test(res.description ?? "");
-    return { ok: false, error: tooBig ? TOO_BIG_TO_DOWNLOAD : "Telegram could not find this file." };
+    const description = res.description ?? "unknown error";
+    if (/too big/i.test(description)) return { ok: false, error: TOO_BIG_TO_DOWNLOAD };
+    return { ok: false, error: `Telegram getFile failed: ${description}` };
   }
   if (typeof file?.file_path !== "string") {
     return { ok: false, error: "Telegram did not return a download path for this file." };
