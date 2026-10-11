@@ -1,7 +1,7 @@
 import { ChatBuffer } from "../src/chat-buffer";
 import type { Env } from "../src/index";
 
-class FakeStorage {
+export class FakeStorage {
   private data = new Map<string, unknown>();
   private timer?: ReturnType<typeof setTimeout>;
   alarmAt: number | null = null;

@@ -1,6 +1,6 @@
 import type { Env } from "./index";
 import { BOT_DOWNLOAD_LIMIT, getFile, TOO_BIG_TO_DOWNLOAD } from "./telegram-api";
-import { ALLOWLIST_CONFIG_ERROR, constantTimeEqual, parseAllowlist } from "./util";
+import { constantTimeEqual } from "./util";
 
 export const FILE_URL_TTL_SECONDS = 15 * 60;
 const FILE_ID = /^[A-Za-z0-9_-]{1,256}$/;
@@ -40,7 +40,6 @@ export async function handleFile(request: Request, env: Env): Promise<Response> 
   if (request.method !== "GET") {
     return new Response("Method Not Allowed", { status: 405, headers: { Allow: "GET" } });
   }
-  if (!parseAllowlist(env.ALLOWED_USER_IDS)) return text(ALLOWLIST_CONFIG_ERROR, 503);
   if (!env.BOT_TOKEN) return text("Server misconfigured: BOT_TOKEN is not set.", 503);
 
   const url = new URL(request.url);

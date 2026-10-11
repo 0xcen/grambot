@@ -1,8 +1,13 @@
 import type { Env } from "./index";
 import { bufferMessage } from "./chat-buffer";
 import { signedFileUrl } from "./file-url";
-import { BOT_DOWNLOAD_LIMIT, getFile, TOO_BIG_TO_DOWNLOAD } from "./telegram-api";
-import { constantTimeEqual, isAllowed, parseAllowlist } from "./util";
+import { isAllowed, resolveAccess } from "./access";
+import { claimOwner, takeRateToken } from "./owner-store";
+import { BOT_DOWNLOAD_LIMIT, callTelegram, getFile, TOO_BIG_TO_DOWNLOAD } from "./telegram-api";
+import { constantTimeEqual, envInt, sha256Hex } from "./util";
+
+export const DEFAULT_MAX_MESSAGE_CHARS = 4000;
+export const CLAIM_CONFIRMATION = "Done. This Telegram account now owns the bot.";
 
 interface TelegramUser {
   id: number;
@@ -38,7 +43,7 @@ interface TelegramMessage {
   audio?: TelegramFile;
   document?: TelegramFile;
   from?: TelegramUser;
-  chat: { id: number };
+  chat: { id: number; type?: string };
 }
 
 type TelegramReactionType = { type: "emoji"; emoji: string } | { type: "custom_emoji" | "paid" };
@@ -74,6 +79,8 @@ export interface BufferedMessage {
   caption?: string;
   media_group_id?: string;
   media?: IncomingMedia;
+  /** Set when text or caption was cut to MAX_MESSAGE_CHARS. */
+  truncated?: boolean;
 }
 
 /** One entry in a forwarded batch. An album becomes one entry holding every item. */
@@ -85,6 +92,7 @@ export interface BatchMessage {
   caption?: string;
   media_group_id?: string;
   media?: ForwardedMedia[];
+  truncated?: boolean;
 }
 
 /** A reaction change on one message. removed is true when the user cleared their reaction, and emoji is then the one they removed. */
@@ -194,7 +202,43 @@ function parseUpdate(update: TelegramUpdate): Inbound | undefined {
   return undefined;
 }
 
+function truncate(entry: BufferedEntry, max: number): BufferedEntry {
+  if (isReaction(entry)) return entry;
+  const cut = (value: string | undefined) => {
+    if (value === undefined || value.length <= max) return value;
+    const chars = [...value];
+    return chars.length <= max ? value : chars.slice(0, max).join("");
+  };
+  const text = cut(entry.text);
+  const caption = cut(entry.caption);
+  if (text === entry.text && caption === entry.caption) return entry;
+  console.log(`telegram: truncated a message to ${max} characters`);
+  return { ...entry, text, caption, truncated: true };
+}
+
+const START_WITH_CODE = /^\/start(?:@\w+)?\s+(\S+)\s*$/;
+
+/** Handles "/start <code>": binds the sender as owner when the code is valid. Every failure is dropped silently. */
+async function handleClaim(env: Env, message: TelegramMessage, code: string): Promise<void> {
+  const { chat, from } = message;
+  if (chat.type !== "private" || !from || chat.id !== from.id) {
+    console.log("claim: ignored /start with a code outside a private chat");
+    return;
+  }
+  const result = await claimOwner(env, await sha256Hex(code), from.id);
+  if (!result.ok) {
+    console.log(`claim: dropped /start, setup code ${result.reason === "no code" ? "missing or already used" : result.reason}`);
+    return;
+  }
+  console.log("claim: owner bound, ALLOWED_USER_IDS no longer applies");
+  await callTelegram(env, "sendMessage", { chat_id: chat.id, text: CLAIM_CONFIRMATION });
+}
+
 const ok = () => new Response("ok", { status: 200 });
+const unavailable = (what: string, err: unknown) => {
+  console.error(`telegram: could not ${what}: ${err instanceof Error ? err.message : "unknown error"}`);
+  return new Response("Service Unavailable", { status: 503 });
+};
 
 export async function handleTelegramWebhook(request: Request, env: Env): Promise<Response> {
   const provided = request.headers.get("X-Telegram-Bot-Api-Secret-Token") ?? "";
@@ -211,16 +255,33 @@ export async function handleTelegramWebhook(request: Request, env: Env): Promise
     return ok();
   }
 
-  const allowlist = parseAllowlist(env.ALLOWED_USER_IDS);
-  if (!allowlist) {
-    console.error("config error: ALLOWED_USER_IDS is empty or invalid, dropping update");
+  // Claims run before the access check, so a fresh install with no owner and no
+  // ALLOWED_USER_IDS can still be claimed. They are never forwarded to the routine.
+  const code = update.message?.chat && update.message.text?.match(START_WITH_CODE)?.[1];
+  if (code) {
+    try {
+      await handleClaim(env, update.message!, code);
+    } catch (err) {
+      return unavailable("check the setup code", err);
+    }
     return ok();
   }
 
   const inbound = parseUpdate(update);
   if (!inbound) return ok();
-  if (!isAllowed(allowlist, inbound.actor)) {
-    console.log("telegram: sender is not allowlisted, dropping");
+
+  let access;
+  try {
+    access = await resolveAccess(env);
+  } catch (err) {
+    return unavailable("load the owner", err);
+  }
+  if (access.mode === "closed") {
+    console.error("config error: no owner is bound and ALLOWED_USER_IDS is empty or invalid, dropping update");
+    return ok();
+  }
+  if (!isAllowed(access, inbound.actor, inbound.chat_id)) {
+    console.log(access.mode === "owner" ? "telegram: not the owner's private chat, dropping" : "telegram: sender is not allowlisted, dropping");
     return ok();
   }
   if (!inbound.entry) return ok();
@@ -228,10 +289,15 @@ export async function handleTelegramWebhook(request: Request, env: Env): Promise
   // A non-200 makes Telegram redeliver, and the buffer keys entries by message id, so a
   // retry after a failed hand-off cannot duplicate one.
   try {
-    await bufferMessage(env, new URL(request.url).origin, inbound.chat_id, inbound.entry);
+    const rate = await takeRateToken(env, inbound.actor!);
+    if (!rate.ok) {
+      console.log(`telegram: ${rate.reason} rate limit reached, dropping`);
+      return ok();
+    }
+    const entry = truncate(inbound.entry, envInt(env.MAX_MESSAGE_CHARS, DEFAULT_MAX_MESSAGE_CHARS));
+    await bufferMessage(env, new URL(request.url).origin, inbound.chat_id, entry);
   } catch (err) {
-    console.error(`telegram: could not buffer message: ${err instanceof Error ? err.message : "unknown error"}`);
-    return new Response("Service Unavailable", { status: 503 });
+    return unavailable("buffer message", err);
   }
   return ok();
 }

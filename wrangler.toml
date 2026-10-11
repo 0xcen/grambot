@@ -9,15 +9,30 @@ enabled = true
 # as one batch. Milliseconds, capped at 60000.
 [vars]
 DEBOUNCE_MS = "2000"
+# Per user caps on inbound messages and reactions. Over the cap, updates are
+# dropped and logged, never answered.
+RATE_LIMIT_PER_MINUTE = "60"
+RATE_LIMIT_PER_DAY = "1000"
+# Longer text or captions are cut to this many characters and marked truncated.
+MAX_MESSAGE_CHARS = "4000"
 
 [[durable_objects.bindings]]
 name = "CHAT_BUFFER"
 class_name = "ChatBuffer"
 
+[[durable_objects.bindings]]
+name = "OWNER_STORE"
+class_name = "OwnerStore"
+
 [[migrations]]
 tag = "v1"
 new_sqlite_classes = ["ChatBuffer"]
 
+[[migrations]]
+tag = "v2"
+new_sqlite_classes = ["OwnerStore"]
+
 # Secrets (set with `wrangler secret put`, see README.md):
-# BOT_TOKEN, TG_WEBHOOK_SECRET, MCP_BEARER_TOKEN, ALLOWED_USER_IDS,
-# GROKBOT_WEBHOOK_URL, GROKBOT_WEBHOOK_AUTH, GROKBOT_WEBHOOK_AUTH_HEADER (optional)
+# BOT_TOKEN, TG_WEBHOOK_SECRET, MCP_BEARER_TOKEN, GROKBOT_WEBHOOK_URL,
+# GROKBOT_WEBHOOK_AUTH, GROKBOT_WEBHOOK_AUTH_HEADER (optional),
+# ALLOWED_USER_IDS (optional, only used until an owner is bound)

@@ -2,11 +2,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import worker, { type Env } from "../src/index";
 import { splitText } from "../src/mcp";
 import { fakeChatBuffers } from "./fake-chat-buffer";
+import { fakeOwnerStore } from "./fake-owner-store";
 
 const BASE = "https://worker.example";
 const buffers = fakeChatBuffers();
+const ownerStore = fakeOwnerStore();
 
-const env: Omit<Env, "CHAT_BUFFER"> = {
+const env: Omit<Env, "CHAT_BUFFER" | "OWNER_STORE"> = {
   BOT_TOKEN: "123:test-bot-token",
   TG_WEBHOOK_SECRET: "tg-secret",
   MCP_BEARER_TOKEN: "mcp-token",
@@ -19,6 +21,7 @@ let fetchMock: ReturnType<typeof vi.fn>;
 async function call(req: Request, overrides: Partial<Env> = {}): Promise<Response> {
   const e = { ...env, ...overrides } as Env;
   e.CHAT_BUFFER = buffers.namespace(e);
+  e.OWNER_STORE = ownerStore.namespace;
   const res = await worker.fetch(req, e);
   await buffers.flush();
   return res;
@@ -74,6 +77,7 @@ beforeEach(() => {
 
 afterEach(() => {
   buffers.reset();
+  ownerStore.reset();
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
 });
@@ -265,6 +269,7 @@ describe("/mcp", () => {
       "send_telegram_voice",
       "send_telegram_document",
       "send_telegram_reaction",
+      "create_setup_code",
     ]);
   });
 
@@ -390,7 +395,7 @@ describe("/mcp", () => {
   });
 });
 
-describe("ALLOWED_USER_IDS is required", () => {
+describe("with no owner bound, ALLOWED_USER_IDS is required", () => {
   const badValues: [string, string | undefined][] = [
     ["unset", undefined],
     ["empty", ""],
@@ -420,7 +425,7 @@ describe("ALLOWED_USER_IDS is required", () => {
       });
       const body = await res.json<any>();
       expect(body.result.isError).toBe(true);
-      expect(body.result.content[0].text).toContain("Server misconfigured: ALLOWED_USER_IDS");
+      expect(body.result.content[0].text).toContain("Server misconfigured: no owner is bound and ALLOWED_USER_IDS is empty or invalid");
     }
     expect(fetchMock).not.toHaveBeenCalled();
   });
@@ -495,12 +500,18 @@ describe("POST /setup", () => {
   it.each([
     ["BOT_TOKEN", { BOT_TOKEN: "" }],
     ["TG_WEBHOOK_SECRET", { TG_WEBHOOK_SECRET: "" }],
-    ["ALLOWED_USER_IDS", { ALLOWED_USER_IDS: "" }],
   ])("refuses without calling Telegram when %s is missing", async (name, overrides) => {
     const res = await call(setupRequest(), overrides as Partial<Env>);
     expect(res.status).toBe(503);
     expect((await res.json<any>()).description).toContain(name);
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("registers the webhook without ALLOWED_USER_IDS, so a fresh install can be claimed with a setup code", async () => {
+    fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({ ok: true, result: true, description: "Webhook was set" })));
+    const res = await call(setupRequest(), { ALLOWED_USER_IDS: "" });
+    expect(res.status).toBe(200);
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body).secret_token).toBe(env.TG_WEBHOOK_SECRET);
   });
 });
 

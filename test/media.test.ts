@@ -1,14 +1,16 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import worker, { type Env } from "../src/index";
 import { fakeChatBuffers } from "./fake-chat-buffer";
+import { fakeOwnerStore } from "./fake-owner-store";
 
 const BASE = "https://worker.example";
 const buffers = fakeChatBuffers();
+const ownerStore = fakeOwnerStore();
 const NOW = Date.UTC(2026, 9, 11, 12, 0, 0);
 const NOW_S = NOW / 1000;
 const MB = 1024 * 1024;
 
-const env: Omit<Env, "CHAT_BUFFER"> = {
+const env: Omit<Env, "CHAT_BUFFER" | "OWNER_STORE"> = {
   BOT_TOKEN: "123:test-bot-token",
   TG_WEBHOOK_SECRET: "tg-secret",
   MCP_BEARER_TOKEN: "mcp-token",
@@ -50,6 +52,7 @@ function fakeNetwork(url: string, init?: RequestInit): Response {
 async function call(req: Request, overrides: Partial<Env> = {}): Promise<Response> {
   const e = { ...env, ...overrides } as Env;
   e.CHAT_BUFFER = buffers.namespace(e);
+  e.OWNER_STORE = ownerStore.namespace;
   const res = await worker.fetch(req, e);
   await buffers.flush();
   return res;
@@ -107,6 +110,7 @@ beforeEach(() => {
 
 afterEach(() => {
   buffers.reset();
+  ownerStore.reset();
   vi.useRealTimers();
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
@@ -312,11 +316,10 @@ describe("GET /file/<file_id>", () => {
     );
   });
 
-  it("returns 503 and serves nothing when the allowlist is misconfigured", async () => {
+  it("serves a signed link without ALLOWED_USER_IDS, since owner installs may not set it", async () => {
     const url = await linkFor(MEDIA_UPDATES[0][1]);
     const res = await get(url, { ALLOWED_USER_IDS: "" });
-    expect(res.status).toBe(503);
-    expect(fetchMock).not.toHaveBeenCalled();
+    expect(res.status).toBe(200);
   });
 
   it("returns 405 for POST", async () => {
@@ -421,7 +424,7 @@ describe("outbound media tools", () => {
 
   it.each(OUTBOUND)("%s refuses with a config error when the allowlist is empty", async (name) => {
     const result = await tool(name, { chat_id: 111, url: "https://cdn.example/a.jpg" }, { ALLOWED_USER_IDS: "" });
-    expect(result.content[0].text).toContain("Server misconfigured: ALLOWED_USER_IDS");
+    expect(result.content[0].text).toContain("Server misconfigured: no owner is bound and ALLOWED_USER_IDS is empty or invalid");
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
